@@ -6,9 +6,9 @@ import { useIsMounted } from '@/hooks/use-is-mounted';
 
 
 import React, { FC, useMemo } from 'react';
-import { WalletMultiButton } from '@demox-labs/aleo-wallet-adapter-reactui';
+import { WalletMultiButton } from '@provablehq/aleo-wallet-adaptor-react-ui';
 
-require('@demox-labs/aleo-wallet-adapter-reactui/dist/styles.css');
+require('@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css');
 
 function HeaderRightArea() {
   return (

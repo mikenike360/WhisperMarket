@@ -8,29 +8,50 @@ import { ReactQueryDevtools } from 'react-query/devtools';
 import { ThemeProvider } from 'next-themes';
 
 // Import Aleo Wallet Adapter dependencies
-import { WalletProvider } from '@demox-labs/aleo-wallet-adapter-react';
-import { WalletModalProvider } from '@demox-labs/aleo-wallet-adapter-reactui';
-import { LeoWalletAdapter } from '@demox-labs/aleo-wallet-adapter-leo';
-import {
-  DecryptPermission,
-  WalletAdapterNetwork,
-} from '@demox-labs/aleo-wallet-adapter-base';
+import { AleoWalletProvider } from '@provablehq/aleo-wallet-adaptor-react';
+import { WalletModalProvider } from '@provablehq/aleo-wallet-adaptor-react-ui';
+import { LeoWalletAdapter } from '@provablehq/aleo-wallet-adaptor-leo';
+import { FoxWalletAdapter } from '@provablehq/aleo-wallet-adaptor-fox';
+import { SoterWalletAdapter } from '@provablehq/aleo-wallet-adaptor-soter';
+import { ShieldWalletAdapter } from '@provablehq/aleo-wallet-adaptor-shield';
+import { DecryptPermission } from '@provablehq/aleo-wallet-adaptor-core';
+import { Network } from '@provablehq/aleo-types';
+
+// Lazy load PuzzleWalletAdapter to avoid ESM issues with @puzzlehq/sdk-core
+let PuzzleWalletAdapter: any = null;
+try {
+  const puzzleModule = require('@provablehq/aleo-wallet-adaptor-puzzle');
+  PuzzleWalletAdapter = puzzleModule.PuzzleWalletAdapter;
+} catch (error) {
+  console.warn('PuzzleWalletAdapter could not be loaded:', error);
+}
 
 // Import global styles and wallet modal styles
 import 'swiper/swiper-bundle.css';
 
 import '@/assets/css/globals.css';
 
-import '@demox-labs/aleo-wallet-adapter-reactui/styles.css';
+require('@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css');
 
-import { CURRENT_NETWORK, CURRENT_RPC_URL } from '@/types';
+import { CURRENT_NETWORK, CURRENT_RPC_URL, PREDICTION_MARKET_PROGRAM_ID } from '@/types';
 
-// Initialize the wallet adapters outside the component
+// Initialize the wallet adapters - following ProvableHQ example pattern
+// Puzzle wallet is conditionally included to avoid ESM resolution issues
 const wallets = [
-  new LeoWalletAdapter({
-    appName: 'zKontract',
-  }),
+  new ShieldWalletAdapter(),
+  new LeoWalletAdapter(),
+  new FoxWalletAdapter(),
+  new SoterWalletAdapter(),
 ];
+
+// Add Puzzle wallet if it loaded successfully
+if (PuzzleWalletAdapter) {
+  try {
+    wallets.push(new PuzzleWalletAdapter());
+  } catch (error) {
+    console.warn('Failed to initialize PuzzleWalletAdapter:', error);
+  }
+}
 
 type AppPropsWithLayout = AppProps & {
   Component: NextPageWithLayout;
@@ -47,19 +68,18 @@ function CustomApp({ Component, pageProps }: AppPropsWithLayout) {
       </Head>
       <QueryClientProvider client={queryClient}>
         <Hydrate state={pageProps.dehydratedState}>
-          <WalletProvider
+          <AleoWalletProvider
             wallets={wallets}
             decryptPermission={DecryptPermission.UponRequest}
-            network={WalletAdapterNetwork.TestnetBeta}
-            autoConnect
-            
+            network={Network.TESTNET}
+            autoConnect={true}
           >
             <WalletModalProvider>
               <ThemeProvider attribute="data-theme" enableSystem={true} defaultTheme="dark">
                 {getLayout(<Component {...pageProps} />)}
               </ThemeProvider>
             </WalletModalProvider>
-          </WalletProvider>
+          </AleoWalletProvider>
         </Hydrate>
         <ReactQueryDevtools initialIsOpen={false} position="bottom-right" />
       </QueryClientProvider>

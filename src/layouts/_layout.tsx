@@ -1,14 +1,16 @@
 import { useWindowScroll } from '@/hooks/use-window-scroll';
 import { useIsMounted } from '@/hooks/use-is-mounted';
 import React, { useState, useEffect } from 'react';
-import { WalletMultiButton } from '@demox-labs/aleo-wallet-adapter-reactui';
+import Link from 'next/link';
+import { WalletMultiButton } from '@provablehq/aleo-wallet-adaptor-react-ui';
 import { HomeIcon } from '@/components/icons/home';
 import { Twitter } from '@/components/icons/twitter';
 import { Discord } from '@/components/icons/discord';
 import { useTheme } from 'next-themes';
 import Footer from '@/components/ui/Footer';
+import routes from '@/config/routes';
 
-require('@demox-labs/aleo-wallet-adapter-reactui/dist/styles.css');
+require('@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css');
 
 // Define the list of DaisyUI themes you want to offer
 const themes = [
@@ -77,19 +79,25 @@ export function Header() {
       }`}
     >
       <div className="flex flex-wrap items-center justify-between px-8 py-8 sm:px-6 lg:px-8 xl:px-10 3xl:px-12">
-        <div className="flex items-center space-x-2">
-          {process.env.URL && (
-            <a
-              className="bg-base-300 bg-opacity-20 rounded-full p-2"
-              href={`${process.env.URL}`}
-            >
-              <HomeIcon />
-            </a>
-          )}
+        <div className="flex items-center gap-6">
+          <Link href={routes.home} className="bg-base-300 bg-opacity-20 rounded-full p-2" aria-label="Home">
+            <HomeIcon />
+          </Link>
+          <nav className="flex items-center gap-4">
+            <Link href={routes.markets} className="link link-hover font-medium">
+              Markets
+            </Link>
+            <Link href={routes.portfolio} className="link link-hover font-medium">
+              Portfolio
+            </Link>
+          </nav>
           {process.env.TWITTER && (
             <a
               className="bg-base-300 bg-opacity-20 rounded-full p-2"
-              href={`${process.env.TWITTER}`}
+              href={process.env.TWITTER}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Twitter"
             >
               <Twitter width="18" height="18" />
             </a>
@@ -97,13 +105,15 @@ export function Header() {
           {process.env.DISCORD && (
             <a
               className="bg-base-300 bg-opacity-20 rounded-full p-2"
-              href={`${process.env.DISCORD}`}
+              href={process.env.DISCORD}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Discord"
             >
               <Discord width="18" height="18" />
             </a>
           )}
         </div>
-        {/* Added a wrapper div with margin-left to create more space */}
         <div className="ml-2 mt-2">
           <HeaderRightArea />
         </div>

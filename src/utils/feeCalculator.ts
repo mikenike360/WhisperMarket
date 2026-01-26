@@ -10,6 +10,7 @@ export interface FeeMapping {
     // https://playground.aleo.org/
     transfer_public: 0.04406,
     transfer_private: 0.04406,
+    init: 0.05, // Estimated fee for init function - adjust based on actual testing
   };
   
   /**

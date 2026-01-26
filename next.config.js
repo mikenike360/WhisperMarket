@@ -24,7 +24,6 @@ const nextConfig = {
       ignoreDuringBuilds: true,
     },
   }),
-  webpack5: true,
   webpack: (config, options) => {
     config.ignoreWarnings = [/Failed to parse source map/];
     const fallback = config.resolve.fallback || {};
@@ -46,11 +45,30 @@ const nextConfig = {
       topLevelAwait: true,
     });
     config.experiments = experiments;
+    
     const alias = config.resolve.alias || {};
+    const path = require('path');
     Object.assign(alias, {
       react$: require.resolve('react'),
+      // Fix @puzzlehq/sdk-core ESM resolution issue by using absolute path
+      // Using process.cwd() instead of __dirname for Next.js compatibility
+      '@puzzlehq/sdk-core': path.resolve(process.cwd(), 'node_modules/@puzzlehq/sdk-core/dist/src/index.js'),
     });
     config.resolve.alias = alias;
+    
+    // Fix module resolution for packages with ESM exports (like @puzzlehq/sdk-core)
+    config.resolve.extensionAlias = {
+      '.js': ['.js', '.ts', '.tsx'],
+      '.jsx': ['.jsx', '.tsx'],
+    };
+    
+    // Handle packages that use ESM exports but need to be resolved by webpack
+    // This allows webpack to use the 'import' condition from package.json exports
+    config.resolve.conditionNames = ['import', 'require', 'default', 'node'];
+    
+    // Allow webpack to resolve ESM packages that don't have proper exports.main
+    // Prioritize 'module' and 'import' fields for ESM packages
+    config.resolve.mainFields = ['module', 'main', 'exports'];
     
     // Handle nextjs bug with wasm static files
     patchWasmModuleImport(config, options.isServer);

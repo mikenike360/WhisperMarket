@@ -1,7 +1,7 @@
 // privateTransfer.ts
 
-import { Transaction, WalletAdapterNetwork } from '@demox-labs/aleo-wallet-adapter-base';
-import { LeoWalletAdapter } from '@demox-labs/aleo-wallet-adapter-leo';
+import { Transaction, WalletAdapterNetwork } from '@provablehq/aleo-wallet-adaptor-core';
+import { LeoWalletAdapter } from '@provablehq/aleo-wallet-adaptor-leo';
 import { CURRENT_NETWORK } from '@/types';
 
 export const CREDITS_PROGRAM_ID = 'credits.aleo';
