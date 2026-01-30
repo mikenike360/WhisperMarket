@@ -1,6 +1,6 @@
 import credits.aleo;
 
-program prediction_market_testing_v3.aleo {
+program whisper_market.aleo {
     // Constants
     const ADMIN: address = aleo1xh0ncflwkfzga983lwujsha729c8nwu7phfn8aw7h3gahhj0ms8qytrxec; // Admin address
     const SCALE: u64 = 10000u64; // Price scale (basis points)
@@ -523,7 +523,8 @@ program prediction_market_testing_v3.aleo {
         assert(winning_shares <= 18446744073709551615u128);
         let payout: u64 = winning_shares as u64;
 
-        assert(existing_committed >= payout as u128);
+        let payout_u128: u128 = payout as u128;
+        let reduction: u128 = (existing_committed >= payout_u128) ? payout_u128 : existing_committed;
 
         let result = credits.aleo/transfer_public_to_private(caller, payout);
         let credit_record = result.0;
@@ -534,7 +535,7 @@ program prediction_market_testing_v3.aleo {
             yes_shares: 0u128,
             no_shares: 0u128,
             collateral_available: existing_available,
-            collateral_committed: existing_committed - payout as u128,
+            collateral_committed: existing_committed - reduction,
             payout_claimed: true
         };
 
