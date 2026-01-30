@@ -17,26 +17,7 @@ export default function Footer() {
           VenomLabs
         </a>
       </p>
-        <div className="flex items-center space-x-6">
-          <Link href="/privacy-policy" className="hover:underline">
-            Privacy Policy
-          </Link>
-
-          <Link href="/terms" className="hover:underline">
-            Terms & Conditions
-          </Link>
-          <Link href="/whitepaper" className="hover:underline">
-            White Paper
-          </Link>
-          <a
-            href="https://buymeacoffee.com/michaelvenu"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-sm btn-primary"
-          >
-            Donate
-          </a>
-        </div>
+        
       </div>
     </footer>
   );
