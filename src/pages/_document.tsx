@@ -15,6 +15,12 @@ class CustomDocument extends Document {
     return (
       <Html lang="en-US" dir="ltr">
         <Head>
+          {/* Must be first: polyfill process.env for production client (yarn start / Vercel) */}
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `(function(){var g=typeof globalThis!=='undefined'?globalThis:typeof window!=='undefined'?window:this;if(typeof g.process==='undefined'){g.process={env:{}};}if(typeof g.process.env==='undefined'){g.process.env={};}})();`,
+            }}
+          />
           {/* Load fonts, etc. */}
           <link rel="preconnect" href="https://fonts.googleapis.com" />
           <link
@@ -47,6 +53,12 @@ class CustomDocument extends Document {
           />
         </Head>
         <body>
+          {/* Run before Main/NextScript so process exists before any bundle runs */}
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `(function(){var g=typeof globalThis!=='undefined'?globalThis:typeof window!=='undefined'?window:this;if(typeof g.process==='undefined'){g.process={env:{}};}if(typeof g.process.env==='undefined'){g.process.env={};}})();`,
+            }}
+          />
           <Main />
           <NextScript />
         </body>

@@ -3,6 +3,7 @@ import type { AppProps } from 'next/app';
 import type { NextPageWithLayout } from '@/types';
 import { useState } from 'react';
 import Head from 'next/head';
+import Script from 'next/script';
 import { Hydrate, QueryClient, QueryClientProvider } from 'react-query';
 import { ReactQueryDevtools } from 'react-query/devtools';
 import { ThemeProvider } from 'next-themes';
@@ -64,6 +65,13 @@ function CustomApp({ Component, pageProps }: AppPropsWithLayout) {
 
   return (
     <>
+      <Script
+        id="process-env-polyfill"
+        strategy="beforeInteractive"
+        dangerouslySetInnerHTML={{
+          __html: `(function(){var g=typeof globalThis!=='undefined'?globalThis:typeof window!=='undefined'?window:this;if(typeof g.process==='undefined'){g.process={env:{}};}if(typeof g.process.env==='undefined'){g.process.env={};}})();`,
+        }}
+      />
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
       </Head>
