@@ -80,7 +80,7 @@ export function createTransactionOptions(
   functionName: string,
   inputs: unknown[],
   fee: number,
-  privateFee: boolean = false,
+  privateFee: boolean = true,
   recordIndices?: number[]
 ): TransactionOptions {
   const processedInputs: unknown[] = inputs.map((input, index) => {

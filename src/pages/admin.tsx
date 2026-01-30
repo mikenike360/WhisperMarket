@@ -10,7 +10,7 @@ import {
   unpause,
   getAllMarkets,
   type MarketRegistryEntry,
-} from '@/components/aleo/rpc';
+} from '@/lib/aleo/rpc';
 import { MarketState, MarketMetadata } from '@/types';
 import { AdminMarketCard } from '@/components/admin/AdminMarketCard';
 import {
@@ -21,10 +21,12 @@ import {
   clearAdminSignedIn,
 } from '@/config/admin';
 import { getMarketsMetadata } from '@/services/marketMetadata';
+import { useTransaction } from '@/contexts/TransactionContext';
 
 const AdminPage: NextPageWithLayout = () => {
   const walletHook = useWallet();
   const { publicKey, wallet, address, signMessage } = walletHook as any;
+  const { addTransaction } = useTransaction();
   const [markets, setMarkets] = useState<MarketRegistryEntry[]>([]);
   const [marketStates, setMarketStates] = useState<Record<string, MarketState>>({});
   const [marketMetadata, setMarketMetadata] = useState<Record<string, MarketMetadata>>({});
@@ -153,6 +155,7 @@ const AdminPage: NextPageWithLayout = () => {
 
     try {
       const txId = await resolveMarket(wallet, userPublicKey, marketId, outcome);
+      addTransaction({ id: txId, label: 'Resolve market' });
       setSuccessMessage(`Market resolved! Transaction ID: ${txId}`);
       
       // Wait a bit then refresh market state
@@ -185,6 +188,7 @@ const AdminPage: NextPageWithLayout = () => {
 
     try {
       const txId = await pause(wallet, userPublicKey, marketId);
+      addTransaction({ id: txId, label: 'Pause market' });
       setSuccessMessage(`Market paused! Transaction ID: ${txId}`);
       
       // Wait a bit then refresh market state
@@ -217,6 +221,7 @@ const AdminPage: NextPageWithLayout = () => {
 
     try {
       const txId = await unpause(wallet, userPublicKey, marketId);
+      addTransaction({ id: txId, label: 'Unpause market' });
       setSuccessMessage(`Market unpaused! Transaction ID: ${txId}`);
       
       // Wait a bit then refresh market state

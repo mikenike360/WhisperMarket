@@ -30,7 +30,7 @@ import {
   getActiveMarketIds,
   clearMarketRegistryCache,
   type MarketRegistryEntry,
-} from '@/lib/aleo/marketRegistry';
+} from './marketRegistry';
 
 export { CREDITS_PROGRAM_ID } from '@/types';
 export { client, getClient } from './rpc/client';
@@ -54,7 +54,7 @@ export {
   getActiveMarketIds,
   clearMarketRegistryCache,
   type MarketRegistryEntry,
-} from '@/lib/aleo/marketRegistry';
+} from './marketRegistry';
 
 /**
  * Discover markets by querying init transactions and extracting market IDs
@@ -546,17 +546,9 @@ async function splitRecordForFee(
     'transfer_private',
     inputs,
     fee,
-    true, // payFeesPrivately - but this will need a fee record too!
+    true, // payFeesPrivately — caller must have a second record for the fee
     [0] // record index
   );
-
-  // Note: This split operation itself needs a fee record
-  // If we only have one record, we can't split it because we'd need another for the fee
-  // So this function assumes we have at least 2 records, or we're doing a public fee
-  // Actually, wait - if we only have one record, we can't split it with a private fee
-  // We'd need to use a public fee for the split operation
-  // Let's use public fee for the split operation to avoid recursion
-  transactionOptions.privateFee = false;
 
   const result = await walletAdapter.executeTransaction(transactionOptions);
   return result.transactionId;
@@ -780,7 +772,7 @@ export async function initMarket(
     'init',
     inputs,
     fee,
-    false,
+    true, // payFeesPrivately
     [5] // spend_record at index 5 — pass through unchanged; do not stringify
   );
 
@@ -1310,8 +1302,12 @@ export async function getMarketState(marketId: string): Promise<MarketState> {
     
     let outcome: boolean | null = null;
     try {
-      const outcomeValue = await fetchMarketMappingValueString('last_resolve', marketId);
-      outcome = outcomeValue === 'true';
+      // Read from market_outcome (canonical mapping; same one used by redeem_private and shown on chain)
+      let outcomeValue = await fetchMarketMappingValueString('market_outcome', marketId);
+      // Strip quotes and Aleo type suffixes (e.g. ".private") that the API may return
+      outcomeValue = outcomeValue.trim().replace(/^["']|["']$/g, '').replace(/\.(private|public)$/i, '').trim();
+      const raw = outcomeValue.toLowerCase();
+      outcome = raw === 'true' || raw === '1';
     } catch {
       // Market not resolved yet
       outcome = null;

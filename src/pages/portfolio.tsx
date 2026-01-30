@@ -6,7 +6,7 @@ import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import {
   getMarketState,
   getAllUserPositions,
-} from '@/components/aleo/rpc';
+} from '@/lib/aleo/rpc';
 import { UserPosition, MarketState, MarketMetadata, PREDICTION_MARKET_PROGRAM_ID } from '@/types';
 import { PortfolioPositionCard } from '@/components/portfolio/PortfolioPositionCard';
 import { PortfolioSummary } from '@/components/portfolio/PortfolioSummary';

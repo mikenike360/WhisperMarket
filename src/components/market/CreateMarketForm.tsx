@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
-import { initMarket, getTotalMarketsCount, getMarketIdAtIndex, fetchMarketCreator, clearMarketRegistryCache } from '@/components/aleo/rpc';
-import { filterUnspentRecords } from '@/components/aleo/wallet/records';
+import { initMarket, getTotalMarketsCount, getMarketIdAtIndex, fetchMarketCreator, clearMarketRegistryCache } from '@/lib/aleo/rpc';
+import { filterUnspentRecords } from '@/lib/aleo/wallet/records';
 import { getFeeForFunction } from '@/utils/feeCalculator';
 import { createMarketMetadata, getMarketMetadata } from '@/services/marketMetadata';
 
@@ -16,7 +16,7 @@ const MAX_COLLATERAL_CREDITS = MAX_COLLATERAL / 1_000_000; // 1,000,000 credits
 const CREDITS_TO_MICROCREDITS = 1_000_000; // 1 credit = 1,000,000 microcredits
 
 interface CreateMarketFormProps {
-  onSuccess?: () => void;
+  onSuccess?: (txId?: string) => void;
   onCancel?: () => void;
 }
 
@@ -185,6 +185,7 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
 
       setTxId(transactionId);
       setSuccess(true);
+      onSuccess?.(transactionId);
 
       // Store metadata temporarily in localStorage so we can save it when we find the market
       // This prevents race conditions where markets are discovered before metadata is saved

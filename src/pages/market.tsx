@@ -6,19 +6,27 @@ import { useRouter } from 'next/router';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { MarketHeader } from '@/components/market/MarketHeader';
 import { PriceDisplay } from '@/components/market/PriceDisplay';
-import { BuyForm } from '@/components/market/BuyForm';
+import { MarketPositionCard } from '@/components/market/MarketPositionCard';
 import { MarketStats } from '@/components/market/MarketStats';
+import { DepositSection } from '@/components/market/DepositSection';
+import { BuyForm } from '@/components/market/BuyForm';
 import { StatusBanner } from '@/components/market/StatusBanner';
-import { getMarketState } from '@/components/aleo/rpc';
-import { PREDICTION_MARKET_PROGRAM_ID } from '@/types';
+import { getMarketState, getAllUserPositions } from '@/lib/aleo/rpc';
+import { PREDICTION_MARKET_PROGRAM_ID, UserPosition } from '@/types';
 import { getMarketMetadata } from '@/services/marketMetadata';
+import { useTransaction } from '@/contexts/TransactionContext';
 
 const MarketPage: NextPageWithLayout = () => {
   const router = useRouter();
-  const { publicKey } = useWallet();
+  const { publicKey, wallet, address, requestRecords } = useWallet();
+  const { addTransaction } = useTransaction();
+  const userAddress = publicKey || address;
   const [marketState, setMarketState] = useState<any>(null);
   const [metadata, setMetadata] = useState<{ title: string; description: string } | null>(null);
+  const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
+  const [userPositionRecord, setUserPositionRecord] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshingRecords, setRefreshingRecords] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [transactionId, setTransactionId] = useState<string | null>(null);
 
@@ -32,16 +40,27 @@ const MarketPage: NextPageWithLayout = () => {
       setError('MARKET_ID_REQUIRED');
       return;
     }
-    
+
     loadMarketState();
+    loadUserPosition();
     // Poll for updates every 10 seconds, only if no error
     const interval = setInterval(() => {
       if (!error && marketId) {
         loadMarketState();
+        loadUserPosition();
       }
     }, 10000);
     return () => clearInterval(interval);
   }, [error, marketId]);
+
+  useEffect(() => {
+    if (userAddress && wallet && marketId) {
+      loadUserPosition();
+    } else {
+      setUserPosition(null);
+      setUserPositionRecord(null);
+    }
+  }, [userAddress, wallet, marketId]);
 
   const loadMarketState = async () => {
     if (!marketId) return;
@@ -68,10 +87,45 @@ const MarketPage: NextPageWithLayout = () => {
     }
   };
 
-  const handleTransactionSubmitted = (txId: string) => {
+  const loadUserPosition = async () => {
+    if (!wallet || !userAddress || !marketId || !requestRecords) {
+      setUserPosition(null);
+      setUserPositionRecord(null);
+      return;
+    }
+    try {
+      const allPositions = await getAllUserPositions(wallet, PREDICTION_MARKET_PROGRAM_ID, requestRecords);
+      const forMarket = allPositions.find((p) => p.position.marketId === marketId);
+      if (forMarket) {
+        setUserPosition(forMarket.position);
+        setUserPositionRecord(forMarket.record);
+      } else {
+        setUserPosition(null);
+        setUserPositionRecord(null);
+      }
+    } catch {
+      setUserPosition(null);
+      setUserPositionRecord(null);
+    }
+  };
+
+  const handleTransactionSubmitted = (txId: string, label?: string) => {
+    addTransaction({ id: txId, label: label ?? 'Transaction' });
     setTransactionId(txId);
-    // Reload market state after a short delay
-    setTimeout(loadMarketState, 2000);
+    setTimeout(() => {
+      loadMarketState();
+      loadUserPosition();
+    }, 3000);
+  };
+
+  const handleRefreshRecords = async () => {
+    setRefreshingRecords(true);
+    try {
+      await loadUserPosition();
+      await loadMarketState();
+    } finally {
+      setRefreshingRecords(false);
+    }
   };
 
   if (loading && !marketState) {
@@ -181,12 +235,33 @@ const MarketPage: NextPageWithLayout = () => {
 
         <StatusBanner status={marketState.status} outcome={marketState.outcome} />
 
+        {userAddress && (
+          <div className="flex justify-end mb-4">
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost gap-2"
+              onClick={handleRefreshRecords}
+              disabled={refreshingRecords}
+            >
+              {refreshingRecords ? (
+                <span className="loading loading-spinner loading-sm" />
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              )}
+              Refresh records
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div>
+          <div className="space-y-4">
             <PriceDisplay
               yesReserve={marketState.yesReserve}
               noReserve={marketState.noReserve}
             />
+            <MarketPositionCard position={userPosition} isOpen={marketState.status === 0} />
             <MarketStats
               collateralPool={marketState.collateralPool}
               yesReserve={marketState.yesReserve}
@@ -195,10 +270,19 @@ const MarketPage: NextPageWithLayout = () => {
             />
           </div>
 
-          <div>
+          <div className="space-y-4">
+            <DepositSection
+              marketId={marketId}
+              userPosition={userPosition}
+              userPositionRecord={userPositionRecord}
+              isOpen={marketState.status === 0}
+              onTransactionSubmitted={handleTransactionSubmitted}
+            />
             <BuyForm
               marketId={marketId}
               marketState={marketState}
+              userPosition={userPosition}
+              userPositionRecord={userPositionRecord}
               isOpen={marketState.status === 0}
               isPaused={marketState.isPaused}
               onTransactionSubmitted={handleTransactionSubmitted}

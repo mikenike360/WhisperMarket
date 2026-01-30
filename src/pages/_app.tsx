@@ -34,6 +34,7 @@ import '@/assets/css/globals.css';
 require('@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css');
 
 import { CURRENT_NETWORK, CURRENT_RPC_URL, PREDICTION_MARKET_PROGRAM_ID } from '@/types';
+import { TransactionProvider } from '@/contexts/TransactionContext';
 
 // Initialize the wallet adapters - following ProvableHQ example pattern
 // Puzzle wallet is conditionally included to avoid ESM resolution issues
@@ -76,7 +77,9 @@ function CustomApp({ Component, pageProps }: AppPropsWithLayout) {
           >
             <WalletModalProvider>
               <ThemeProvider attribute="data-theme" enableSystem={true} defaultTheme="dark">
-                {getLayout(<Component {...pageProps} />)}
+                <TransactionProvider>
+                  {getLayout(<Component {...pageProps} />)}
+                </TransactionProvider>
               </ThemeProvider>
             </WalletModalProvider>
           </AleoWalletProvider>

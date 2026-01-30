@@ -1,6 +1,6 @@
 /**
  * Example calls / unit-style checks for createTransactionOptions and findWalletAdapter.
- * Run with: npx tsx src/components/aleo/wallet/tx.example.test.ts
+ * Run with: npx tsx src/lib/aleo/wallet/tx.example.test.ts
  * Or paste into a test runner when one is added.
  *
  * createTransactionOptions: init inputs become

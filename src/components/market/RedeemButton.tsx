@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
-import { WalletNotConnectedError } from '@provablehq/aleo-wallet-adaptor-core';
-import { redeemPrivate } from '@/components/aleo/rpc';
+import { redeemPrivate } from '@/lib/aleo/rpc';
 import { toCredits } from '@/utils/credits';
+import { useTransaction } from '@/contexts/TransactionContext';
 
 interface RedeemButtonProps {
   marketId: string;
@@ -27,7 +27,9 @@ export const RedeemButton: React.FC<RedeemButtonProps> = ({
   estimatedPayout,
   onRedeemed,
 }) => {
-  const { publicKey, wallet } = useWallet();
+  const { publicKey, wallet, address } = useWallet();
+  const userAddress = publicKey || address;
+  const { addTransaction } = useTransaction();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +38,7 @@ export const RedeemButton: React.FC<RedeemButtonProps> = ({
     (outcome === false && userNoShares > 0);
 
   const handleRedeem = async () => {
-    if (!publicKey || !wallet) {
+    if (!userAddress || !wallet) {
       setError('Please connect your wallet');
       return;
     }
@@ -70,9 +72,9 @@ export const RedeemButton: React.FC<RedeemButtonProps> = ({
     setError(null);
 
     try {
-      const txId = await redeemPrivate(wallet, publicKey, marketId, positionRecord, outcome);
+      const txId = await redeemPrivate(wallet, userAddress, marketId, positionRecord, outcome);
+      addTransaction({ id: txId, label: 'Redeem' });
       onRedeemed?.();
-      alert(`Redeem transaction submitted: ${txId}`);
     } catch (err: any) {
       setError(err.message || 'Failed to redeem shares');
     } finally {

@@ -1,26 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
-import { WalletNotConnectedError } from '@provablehq/aleo-wallet-adaptor-core';
 import {
-  openPositionPrivate,
-  depositPrivate,
   swapCollateralForYesPrivate,
   swapCollateralForNoPrivate,
-  getUserPositionRecords,
-  getMarketState,
-  findPositionRecordForMarket,
-} from '@/components/aleo/rpc';
-import { filterUnspentRecords, pickRecordForAmount } from '@/components/aleo/wallet/records';
+} from '@/lib/aleo/rpc';
 import { calculateSwapOutput } from '@/utils/positionHelpers';
 import { toMicrocredits, toCredits } from '@/utils/credits';
-import { PREDICTION_MARKET_PROGRAM_ID, MarketState } from '@/types';
+import { MarketState, UserPosition } from '@/types';
 
 interface BuyFormProps {
-  marketId: string; // Field-based market ID
+  marketId: string;
   marketState: MarketState | null;
+  userPosition: UserPosition | null;
+  userPositionRecord: any;
   isOpen: boolean;
   isPaused: boolean;
-  onTransactionSubmitted?: (txId: string) => void;
+  onTransactionSubmitted?: (txId: string, label?: string) => void;
 }
 
 const SLIPPAGE_TOLERANCE = 0.01; // 1% slippage tolerance
@@ -28,6 +23,8 @@ const SLIPPAGE_TOLERANCE = 0.01; // 1% slippage tolerance
 export const BuyForm: React.FC<BuyFormProps> = ({
   marketId,
   marketState,
+  userPosition,
+  userPositionRecord,
   isOpen,
   isPaused,
   onTransactionSubmitted,
@@ -38,42 +35,8 @@ export const BuyForm: React.FC<BuyFormProps> = ({
   const [side, setSide] = useState<'yes' | 'no'>('yes');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasPosition, setHasPosition] = useState(false);
-  const [positionRecord, setPositionRecord] = useState<any>(null);
   const [estimatedOutputMicrocredits, setEstimatedOutputMicrocredits] = useState<number | null>(null);
-
-  // Check for existing position and fetch the record object
-  useEffect(() => {
-    const checkPosition = async () => {
-      if (!wallet || !userAddress || !marketId) {
-        setHasPosition(false);
-        setPositionRecord(null);
-        return;
-      }
-
-      try {
-        const position = await getUserPositionRecords(
-          wallet,
-          PREDICTION_MARKET_PROGRAM_ID,
-          marketId,
-          requestRecords ?? undefined
-        );
-        setHasPosition(position !== null);
-        
-        if (position && requestRecords) {
-          const allRecords = await requestRecords(PREDICTION_MARKET_PROGRAM_ID);
-          setPositionRecord(findPositionRecordForMarket(allRecords ?? [], marketId));
-        } else {
-          setPositionRecord(null);
-        }
-      } catch (err) {
-        setHasPosition(false);
-        setPositionRecord(null);
-      }
-    };
-
-    checkPosition();
-  }, [wallet, userAddress, marketId, requestRecords]);
+  const hasPosition = userPosition !== null;
 
   // Calculate estimated output when amount or side changes (all amounts in microcredits)
   useEffect(() => {
@@ -102,72 +65,6 @@ export const BuyForm: React.FC<BuyFormProps> = ({
       setEstimatedOutputMicrocredits(null);
     }
   }, [amount, side, marketState]);
-
-  const handleDeposit = async () => {
-    if (!userAddress || !wallet) {
-      setError('Please connect your wallet');
-      return;
-    }
-
-    const depositAmountCredits = parseFloat(amount);
-    if (isNaN(depositAmountCredits) || depositAmountCredits <= 0) {
-      setError('Please enter a valid amount');
-      return;
-    }
-
-    const depositMicrocredits = Math.floor(toMicrocredits(depositAmountCredits));
-    if (depositMicrocredits < 1) {
-      setError('Deposit amount is too small (minimum 1 microcredit)');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-
-    try {
-      if (!requestRecords) {
-        throw new Error('Wallet does not support record access. Please use a wallet that supports viewing records.');
-      }
-      const creditRecords = await requestRecords('credits.aleo');
-      const unspentCredits = filterUnspentRecords(creditRecords ?? []);
-      if (unspentCredits.length === 0) {
-        throw new Error('No unspent credit records found');
-      }
-      const chosen = pickRecordForAmount(unspentCredits, depositMicrocredits);
-      if (!chosen) {
-        throw new Error('No credit record with sufficient balance');
-      }
-      const creditRecord = chosen.record;
-
-      let txId: string;
-      if (hasPosition && positionRecord) {
-        txId = await depositPrivate(
-          wallet,
-          userAddress,
-          marketId,
-          creditRecord,
-          depositMicrocredits,
-          positionRecord,
-          0
-        );
-      } else {
-        txId = await openPositionPrivate(
-          wallet,
-          userAddress,
-          marketId,
-          creditRecord,
-          depositMicrocredits,
-          0
-        );
-      }
-
-      onTransactionSubmitted?.(txId);
-      setAmount('');
-    } catch (err: any) {
-      setError(err.message || 'Failed to deposit');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleBuy = async () => {
     if (!userAddress || !wallet) {
@@ -200,26 +97,17 @@ export const BuyForm: React.FC<BuyFormProps> = ({
         throw new Error('Wallet does not support record access. Please use a wallet that supports viewing records.');
       }
 
-      const position = await getUserPositionRecords(
-        wallet,
-        PREDICTION_MARKET_PROGRAM_ID,
-        marketId,
-        requestRecords
-      );
-
-      if (!position) {
-        throw new Error('No position found. Please deposit first.');
+      if (!userPosition) {
+        throw new Error('No position found. Add collateral first using the section above.');
       }
 
-      const allRecords = await requestRecords(PREDICTION_MARKET_PROGRAM_ID);
-      const positionRecordObj = findPositionRecordForMarket(allRecords ?? [], marketId);
-      if (!positionRecordObj) {
-        throw new Error('Position record not found in wallet');
+      if (!userPositionRecord) {
+        throw new Error('Position record not found in wallet.');
       }
 
-      if (position.collateralAvailable < buyMicrocredits) {
+      if (userPosition.collateralAvailable < buyMicrocredits) {
         throw new Error(
-          `Insufficient available collateral. Available: ${toCredits(position.collateralAvailable).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits`
+          `Insufficient available collateral. Available: ${toCredits(userPosition.collateralAvailable).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits`
         );
       }
 
@@ -239,7 +127,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           wallet,
           userAddress,
           marketId,
-          positionRecordObj,
+          userPositionRecord,
           buyMicrocredits,
           minOutput,
           marketState.yesReserve,
@@ -252,7 +140,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           wallet,
           userAddress,
           marketId,
-          positionRecordObj,
+          userPositionRecord,
           buyMicrocredits,
           minOutput,
           marketState.yesReserve,
@@ -262,7 +150,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
         );
       }
 
-      onTransactionSubmitted?.(txId);
+      onTransactionSubmitted?.(txId, side === 'yes' ? 'Buy YES' : 'Buy NO');
       setAmount('');
     } catch (err: any) {
       setError(err.message || 'Failed to buy shares');
@@ -274,44 +162,53 @@ export const BuyForm: React.FC<BuyFormProps> = ({
   return (
     <div className="card bg-base-100 shadow-xl">
       <div className="card-body">
-        <h3 className="card-title mb-4">Buy Shares</h3>
+        <h3 className="card-title text-base mb-2">Buy shares</h3>
+        <p className="text-sm text-base-content/70 mb-4">
+          Use your available collateral to buy YES or NO. Add collateral above if you have none.
+        </p>
 
         {error && (
-          <div className="alert alert-error mb-4">
+          <div className="alert alert-error mb-4 text-sm">
             <span>{error}</span>
           </div>
         )}
 
-        <div className="form-control mb-4">
-          <label className="label">
-            <span className="label-text">Collateral Amount (credits)</span>
+        {!hasPosition && (
+          <div className="alert alert-info mb-4 text-sm">
+            <span>Add collateral in the section above first, then come back to buy shares.</span>
+          </div>
+        )}
+
+        <div className="form-control mb-3">
+          <label className="label py-1">
+            <span className="label-text">Amount to spend (credits)</span>
           </label>
           <input
             type="number"
-            placeholder="Enter amount in credits"
-            className="input input-bordered w-full"
+            placeholder="e.g. 5"
+            className="input input-bordered w-full input-sm"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             min="0"
             step="0.01"
-            disabled={loading}
+            disabled={loading || !hasPosition}
           />
         </div>
 
-        <div className="form-control mb-4">
-          <label className="label">
-            <span className="label-text">Choose Side</span>
+        <div className="form-control mb-3">
+          <label className="label py-1">
+            <span className="label-text">Side</span>
           </label>
           <div className="btn-group w-full">
             <button
-              className={`btn flex-1 ${side === 'yes' ? 'btn-success' : 'btn-outline btn-success'}`}
+              className={`btn btn-sm flex-1 ${side === 'yes' ? 'btn-success' : 'btn-outline btn-success'}`}
               onClick={() => setSide('yes')}
               disabled={loading}
             >
               YES
             </button>
             <button
-              className={`btn flex-1 ${side === 'no' ? 'btn-error' : 'btn-outline btn-error'}`}
+              className={`btn btn-sm flex-1 ${side === 'no' ? 'btn-error' : 'btn-outline btn-error'}`}
               onClick={() => setSide('no')}
               disabled={loading}
             >
@@ -320,54 +217,35 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           </div>
         </div>
 
-        {estimatedOutputMicrocredits !== null && (
-          <div className="alert alert-info mb-4">
-            <span>
-              Estimated {side.toUpperCase()} shares: {toCredits(estimatedOutputMicrocredits).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits
-            </span>
-          </div>
+        {estimatedOutputMicrocredits !== null && amount && (
+          <p className="text-sm text-base-content/70 mb-3">
+            Estimated {side.toUpperCase()} shares: <strong>{toCredits(estimatedOutputMicrocredits).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}</strong> credits
+          </p>
         )}
 
         {!userAddress && (
-          <div className="alert alert-warning mb-4">
-            <span>Connect your wallet to buy shares or deposit</span>
+          <div className="alert alert-warning mb-4 text-sm">
+            <span>Connect your wallet to buy shares</span>
           </div>
         )}
-        <div className="flex gap-2">
-          <button
-            className="btn btn-primary flex-1"
-            onClick={handleBuy}
-            disabled={loading || !userAddress || !wallet || !isOpen || isPaused}
-          >
-            {loading ? (
-              <span className="loading loading-spinner"></span>
-            ) : (
-              `Buy ${side.toUpperCase()}`
-            )}
-          </button>
-          <button
-            className="btn btn-secondary flex-1"
-            onClick={handleDeposit}
-            disabled={loading || !userAddress || !wallet}
-          >
-            {loading ? (
-              <span className="loading loading-spinner"></span>
-            ) : (
-              'Deposit'
-            )}
-          </button>
-        </div>
+
+        <button
+          className="btn btn-primary w-full btn-sm"
+          onClick={handleBuy}
+          disabled={loading || !userAddress || !wallet || !isOpen || isPaused || !hasPosition}
+        >
+          {loading ? (
+            <span className="loading loading-spinner loading-sm"></span>
+          ) : (
+            `Buy ${side.toUpperCase()}`
+          )}
+        </button>
 
         {isPaused && (
-          <div className="alert alert-warning mt-4">
-            <span>Market is currently paused</span>
-          </div>
+          <p className="text-warning text-sm mt-3">Market is currently paused</p>
         )}
-
         {!isOpen && (
-          <div className="alert alert-info mt-4">
-            <span>Market is closed</span>
-          </div>
+          <p className="text-info text-sm mt-3">Market is closed</p>
         )}
       </div>
     </div>

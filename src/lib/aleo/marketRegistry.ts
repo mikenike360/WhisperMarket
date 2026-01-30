@@ -23,7 +23,7 @@ import {
   fetchMarketMappingValue,
   fetchMarketMappingValueString,
   fetchMarketCreator,
-} from '@/components/aleo/rpc/chainRead';
+} from './rpc/chainRead';
 
 export interface MarketRegistryEntry {
   marketId: string;

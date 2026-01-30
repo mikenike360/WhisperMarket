@@ -4,13 +4,14 @@ import { NextSeo } from 'next-seo';
 import Layout from '@/layouts/_layout';
 import { useRouter } from 'next/router';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
-import { getMarketState, discoverMarketsFromChain, extractMarketIdFromTransaction, getAllMarkets, clearMarketRegistryCache, MarketRegistryEntry, fetchMarketCreator } from '@/components/aleo/rpc';
+import { getMarketState, discoverMarketsFromChain, getAllMarkets, clearMarketRegistryCache, MarketRegistryEntry } from '@/lib/aleo/rpc';
 import { MarketState, MarketMetadata } from '@/types';
 import { calculatePriceFromReserves } from '@/utils/positionHelpers';
 import { toCredits } from '@/utils/credits';
 import { formatPriceCents } from '@/utils/priceDisplay';
 import { CreateMarketForm } from '@/components/market/CreateMarketForm';
-import { getMarketsMetadata, saveMissingMarketMetadata, createMarketMetadata } from '@/services/marketMetadata';
+import { getMarketsMetadata, saveMissingMarketMetadata } from '@/services/marketMetadata';
+import { useTransaction } from '@/contexts/TransactionContext';
 
 function defaultMetadata(marketId: string) {
   return {
@@ -30,12 +31,11 @@ const MarketsPage: NextPageWithLayout = () => {
   const router = useRouter();
   const walletHook = useWallet();
   const { publicKey, wallet, address, connected } = walletHook;
+  const { addTransaction } = useTransaction();
   const [markets, setMarkets] = useState<MarketCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [discovering, setDiscovering] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [manualTxId, setManualTxId] = useState('');
-  const [addingManual, setAddingManual] = useState(false);
 
   // Check if wallet is connected
   // Some wallets use 'address' instead of 'publicKey'
@@ -158,67 +158,10 @@ const MarketsPage: NextPageWithLayout = () => {
     // Removed auto-refresh - users can click refresh button manually
   }, []);
 
-  const handleMarketCreated = () => {
+  const handleMarketCreated = (txId?: string) => {
+    if (txId) addTransaction({ id: txId, label: 'Create market' });
     setShowCreateModal(false);
-    // Clear registry cache so fresh data is fetched on next load
     clearMarketRegistryCache();
-    // Don't auto-refresh - let user click refresh button when ready
-    // The market will appear after transaction is processed on-chain
-  };
-
-  const handleAddMarketByTxId = async () => {
-    if (!manualTxId.trim()) return;
-    
-    setAddingManual(true);
-    try {
-      const marketId = await extractMarketIdFromTransaction(manualTxId.trim());
-      if (marketId) {
-        // Check if market exists and add it
-        try {
-          const state = await getMarketState(marketId);
-          const metaMap = await getMarketsMetadata([marketId]);
-          const meta = metaMap[marketId] ?? defaultMetadata(marketId);
-          
-          // Save to Supabase if not already there
-          if (!metaMap[marketId]) {
-            // Try to get creator from chain
-            const creator = await fetchMarketCreator(marketId).catch(() => null);
-            
-            await createMarketMetadata({
-              market_id: marketId,
-              title: meta.title,
-              description: meta.description,
-              category: meta.category,
-              creator_address: creator ?? null,
-              transaction_id: manualTxId.trim(),
-            });
-          }
-          
-          const newMarket: MarketCardData = {
-            marketId,
-            ...meta,
-            state,
-            loading: false,
-            error: null,
-          };
-          setMarkets(prev => {
-            const exists = prev.some(m => m.marketId === marketId);
-            if (exists) return prev;
-            return [...prev, newMarket];
-          });
-          setManualTxId('');
-          alert(`Market added successfully! Market ID: ${marketId}`);
-        } catch (err: any) {
-          alert(`Market ID found (${marketId}) but market state query failed: ${err.message}`);
-        }
-      } else {
-        alert('Could not extract market ID from transaction. The transaction might not be indexed yet or might not be a market creation transaction.');
-      }
-    } catch (err: any) {
-      alert(`Failed to extract market ID: ${err.message}`);
-    } finally {
-      setAddingManual(false);
-    }
   };
 
   const handleMarketClick = (marketId: string) => {
@@ -251,14 +194,14 @@ const MarketsPage: NextPageWithLayout = () => {
   return (
     <>
       <NextSeo
-        title="Markets Dashboard"
+        title="Markets | Whisper Market"
         description="Browse and participate in prediction markets"
       />
 
       <div className="container mx-auto px-4 py-8">
         <div className="mb-8 flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
-            <h1 className="text-4xl font-bold mb-2">Prediction Markets</h1>
+            <h1 className="text-4xl font-bold mb-2">Markets</h1>
             <p className="text-base-content/70">
               Browse available markets and place your predictions
             </p>
@@ -295,36 +238,6 @@ const MarketsPage: NextPageWithLayout = () => {
           </div>
         )}
 
-        <div className="card bg-base-200 shadow-xl mb-6">
-          <div className="card-body">
-            <h3 className="card-title text-sm">Add Market by Transaction ID</h3>
-            <p className="text-xs text-base-content/70 mb-2">
-              If your market doesn't appear automatically, paste the transaction ID here
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Transaction ID (e.g. at1nw4dknzxjdfnj2ek4hgxt6h6hyhht6zaj7qrlsc8jcshddapkuysw3k6m5)"
-                className="input input-bordered input-sm flex-1"
-                value={manualTxId}
-                onChange={(e) => setManualTxId(e.target.value)}
-                disabled={addingManual}
-              />
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={handleAddMarketByTxId}
-                disabled={addingManual || !manualTxId.trim()}
-              >
-                {addingManual ? (
-                  <span className="loading loading-spinner loading-sm"></span>
-                ) : (
-                  'Add Market'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-
         {markets.length === 0 && !loading ? (
           <div className="card bg-base-200 shadow-xl">
             <div className="card-body">
@@ -332,13 +245,6 @@ const MarketsPage: NextPageWithLayout = () => {
               <p className="text-base-content/80">
                 No markets have been discovered on-chain yet. Markets will appear here once they are initialized.
               </p>
-              <div className="divider">How Markets Are Discovered</div>
-              <ol className="list-decimal list-inside space-y-2 text-sm">
-                <li>Markets are discovered via on-chain enumeration using <code className="badge badge-ghost">market_index</code> and <code className="badge badge-ghost">total_markets</code> mappings</li>
-                <li>Only active markets (status = 0) are shown in the list</li>
-                <li>Market metadata is stored in Supabase for better display (optional)</li>
-                <li>Transaction-based discovery is used as fallback for markets created before enumeration was added</li>
-              </ol>
             </div>
           </div>
         ) : (

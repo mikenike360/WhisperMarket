@@ -8,6 +8,7 @@ import { Twitter } from '@/components/icons/twitter';
 import { Discord } from '@/components/icons/discord';
 import { useTheme } from 'next-themes';
 import Footer from '@/components/ui/Footer';
+import { TransactionTracker } from '@/components/transactions/TransactionTracker';
 import routes from '@/config/routes';
 
 require('@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css');
@@ -139,6 +140,7 @@ export default function Layout({
         {children}
       </main>
       <Footer />
+      <TransactionTracker />
     </div>
   );
 }

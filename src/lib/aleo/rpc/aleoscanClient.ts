@@ -26,7 +26,7 @@ function buildProxyPath(programId: string, mappingName: string, key: string): st
 /**
  * Get mapping value from AleoScan API
  * 
- * @param programId - Program ID (e.g., "prediction_market_testing_v3.aleo")
+ * @param programId - Program ID (e.g., "whisper_market.aleo")
  * @param mappingName - Mapping name (e.g., "total_markets")
  * @param key - Key value (e.g., "0u64" or "5876945607271027451885340988094905867884195093098210518443342717670717944265field")
  * @returns Mapping value as string, or null if not found
