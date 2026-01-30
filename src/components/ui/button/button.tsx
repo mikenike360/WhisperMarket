@@ -121,17 +121,17 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 
     return (
       <button
-      ref={buttonRef}
-      onClick={clickHandler}
-      className={cn(
-        'relative inline-flex shrink-0 items-center justify-center overflow-hidden text-center text-xs font-medium tracking-wider outline-none transition-all sm:text-sm',
-        className, // Allow `className` to take precedence
-        isLoading
-          ? 'pointer-events-auto cursor-default focus:outline-none'
-          : 'hover:-translate-y-0.5 hover:shadow-large focus:-translate-y-0.5 focus:shadow-large focus:outline-none',
-        fullWidth && 'w-full',
-        shape === 'circle' ? `${sizeClassNames[1]}` : `${sizeClassNames[0]}`
-      )}
+        ref={buttonRef}
+        onClick={clickHandler}
+        className={cn(
+          'relative inline-flex shrink-0 items-center justify-center overflow-hidden text-center text-xs font-medium tracking-wider outline-none transition-all duration-200 sm:text-sm',
+          isLoading
+            ? 'pointer-events-auto cursor-default focus:outline-none'
+            : 'hover:-translate-y-0.5 hover:shadow-large hover:scale-105 focus:-translate-y-0.5 focus:shadow-large focus:outline-none',
+          fullWidth && 'w-full',
+          shape === 'circle' ? `${sizeClassNames[1]}` : `${sizeClassNames[0]}`,
+          className
+        )}
       disabled={disabled}
       {...buttonProps}
       >

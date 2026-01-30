@@ -10,7 +10,7 @@ interface MarketPositionCardProps {
 export const MarketPositionCard: React.FC<MarketPositionCardProps> = ({ position, isOpen }) => {
   if (!position) {
     return (
-      <div className="card bg-base-100 shadow-xl">
+      <div className="card bg-base-100 shadow-xl rounded-xl">
         <div className="card-body">
           <h3 className="card-title text-base mb-2">Your position</h3>
           <p className="text-sm text-base-content/70">
@@ -25,7 +25,7 @@ export const MarketPositionCard: React.FC<MarketPositionCardProps> = ({ position
   const hasUnspentCollateral = position.collateralAvailable > 0;
 
   return (
-    <div className="card bg-base-100 shadow-xl">
+    <div className="card bg-base-100 shadow-xl rounded-xl">
       <div className="card-body">
         <h3 className="card-title text-base mb-3">Your position</h3>
         {isOpen && hasUnspentCollateral && (

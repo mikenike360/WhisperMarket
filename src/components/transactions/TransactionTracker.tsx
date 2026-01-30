@@ -1,18 +1,26 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTransaction } from '@/contexts/TransactionContext';
+import { client } from '@/lib/aleo/rpc/client';
 
-const EXPLORER_BASE = 'https://testnet.explorer.provable.com/transaction';
+const EXPLORER_BASE = 'https://testnet.aleoscan.io/transaction';
 
 function truncateId(id: string, head = 8, tail = 4): string {
   if (!id || id.length <= head + tail) return id;
   return `${id.slice(0, head)}…${id.slice(-tail)}`;
 }
 
+interface TransactionStatus {
+  id: string;
+  isFinalized: boolean;
+  isChecking: boolean;
+}
+
 export function TransactionTracker() {
   const { transactions, isMinimized, setMinimized, removeTransaction, clearTransactions } = useTransaction();
   const [copyId, setCopyId] = useState<string | null>(null);
+  const [statuses, setStatuses] = useState<Map<string, TransactionStatus>>(new Map());
 
   const handleCopy = async (id: string) => {
     try {
@@ -23,6 +31,54 @@ export function TransactionTracker() {
       // ignore
     }
   };
+
+  // Check transaction finalization status
+  useEffect(() => {
+    const checkTransactions = async () => {
+      for (const tx of transactions) {
+        setStatuses((prev) => {
+          const currentStatus = prev.get(tx.id);
+          // Skip if already finalized or currently checking
+          if (currentStatus?.isFinalized || currentStatus?.isChecking) {
+            return prev;
+          }
+          // Mark as checking
+          const newMap = new Map(prev);
+          newMap.set(tx.id, { id: tx.id, isFinalized: false, isChecking: true });
+          return newMap;
+        });
+
+        // Check if finalized (non-blocking check)
+        try {
+          const status = await client.request('getTransactionStatus', { id: tx.id });
+          const isFinalized = status === 'finalized';
+          setStatuses((prev) => {
+            const newMap = new Map(prev);
+            newMap.set(tx.id, { id: tx.id, isFinalized, isChecking: false });
+            return newMap;
+          });
+        } catch {
+          // Transaction not yet on chain or not finalized, mark as not checking (will retry)
+          setStatuses((prev) => {
+            const newMap = new Map(prev);
+            const existing = prev.get(tx.id);
+            if (existing) {
+              newMap.set(tx.id, { ...existing, isChecking: false });
+            }
+            return newMap;
+          });
+        }
+      }
+    };
+
+    if (transactions.length > 0) {
+      checkTransactions();
+      // Check every 5 seconds for pending transactions
+      const interval = setInterval(checkTransactions, 5000);
+      return () => clearInterval(interval);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions]);
 
   if (transactions.length === 0) return null;
 
@@ -68,43 +124,59 @@ export function TransactionTracker() {
         </div>
       </div>
       <ul className="overflow-y-auto flex-1 p-2 space-y-2">
-        {transactions.map((tx) => (
-          <li
-            key={tx.id}
-            className="flex flex-col gap-1 p-2 rounded-md bg-base-100 border border-base-300 text-sm"
-          >
-            <div className="font-medium text-base-content">{tx.label}</div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <code className="text-xs text-base-content/70 truncate max-w-[140px]" title={tx.id}>
-                {truncateId(tx.id)}
-              </code>
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs"
-                onClick={() => handleCopy(tx.id)}
-                title="Copy ID"
-              >
-                {copyId === tx.id ? 'Copied' : 'Copy'}
-              </button>
-              <a
-                href={`${EXPLORER_BASE}/${tx.id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link link-primary link-hover text-xs"
-              >
-                Explorer
-              </a>
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs text-error"
-                onClick={() => removeTransaction(tx.id)}
-                title="Dismiss"
-              >
-                Dismiss
-              </button>
-            </div>
-          </li>
-        ))}
+        {transactions.map((tx) => {
+          const status = statuses.get(tx.id);
+          const isFinalized = status?.isFinalized ?? false;
+          const isChecking = status?.isChecking ?? false;
+
+          return (
+            <li
+              key={tx.id}
+              className="flex flex-col gap-1 p-2 rounded-md bg-base-100 border border-base-300 text-sm"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-medium text-base-content">{tx.label}</div>
+                {isChecking && (
+                  <span className="loading loading-spinner loading-xs text-primary" title="Waiting for finalization..." />
+                )}
+                {isFinalized && !isChecking && (
+                  <span className="badge badge-success badge-xs" title="Transaction finalized">
+                    ✓
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <code className="text-xs text-base-content/70 truncate max-w-[140px]" title={tx.id}>
+                  {truncateId(tx.id)}
+                </code>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs"
+                  onClick={() => handleCopy(tx.id)}
+                  title="Copy ID"
+                >
+                  {copyId === tx.id ? 'Copied' : 'Copy'}
+                </button>
+                <a
+                  href={`${EXPLORER_BASE}/${tx.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="link link-primary link-hover text-xs"
+                >
+                  Explorer
+                </a>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs text-error"
+                  onClick={() => removeTransaction(tx.id)}
+                  title="Dismiss"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

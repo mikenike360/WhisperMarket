@@ -280,7 +280,7 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
     const explorerUrl = txId ? `https://testnet.explorer.provable.com/transaction/${txId}` : null;
     
     return (
-      <div className="card bg-base-100 shadow-xl">
+      <div className="card bg-base-100 shadow-xl rounded-xl">
         <div className="card-body">
           <div className="alert alert-success">
             <svg
@@ -344,7 +344,7 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
   }
 
   return (
-    <div className="card bg-base-100 shadow-xl">
+    <div className="card bg-base-100 shadow-xl rounded-xl">
       <div className="card-body">
         <h2 className="card-title mb-4">Create New Market</h2>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type { NextPageWithLayout } from '@/types';
 import { NextSeo } from 'next-seo';
 import Layout from '@/layouts/_layout';
@@ -12,6 +12,10 @@ import { formatPriceCents } from '@/utils/priceDisplay';
 import { CreateMarketForm } from '@/components/market/CreateMarketForm';
 import { getMarketsMetadata, saveMissingMarketMetadata } from '@/services/marketMetadata';
 import { useTransaction } from '@/contexts/TransactionContext';
+import { SkeletonCard } from '@/components/ui/SkeletonCard';
+import { AnimatedPrice } from '@/components/ui/AnimatedPrice';
+import { LiquidityBar } from '@/components/market/LiquidityBar';
+import { useIntersectionObserver } from '@/hooks/use-intersection-observer';
 
 function defaultMetadata(marketId: string) {
   return {
@@ -36,10 +40,35 @@ const MarketsPage: NextPageWithLayout = () => {
   const [loading, setLoading] = useState(true);
   const [discovering, setDiscovering] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [marketsGridRef, marketsGridVisible] = useIntersectionObserver({ threshold: 0.1 });
 
-  // Check if wallet is connected
-  // Some wallets use 'address' instead of 'publicKey'
   const isWalletConnected = Boolean(publicKey || address || (connected && wallet));
+
+  const categories = useMemo(() => {
+    const cats = new Set<string>();
+    markets.forEach((m) => {
+      if (m.category && m.category.trim()) cats.add(m.category.trim());
+    });
+    return ['All', ...Array.from(cats).sort()];
+  }, [markets]);
+
+  const filteredMarkets = useMemo(() => {
+    let list = markets;
+    if (categoryFilter !== 'All') {
+      list = list.filter((m) => (m.category ?? '').trim() === categoryFilter);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter(
+        (m) =>
+          m.title.toLowerCase().includes(q) ||
+          (m.description ?? '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [markets, categoryFilter, searchQuery]);
 
   const loadMarkets = async () => {
     setLoading(true);
@@ -155,8 +184,29 @@ const MarketsPage: NextPageWithLayout = () => {
 
   useEffect(() => {
     loadMarkets();
-    // Removed auto-refresh - users can click refresh button manually
   }, []);
+
+  // Auto-refresh every 10 seconds when page is visible
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (!document.hidden) {
+        loadMarkets();
+      }
+    }, 10000);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadMarkets();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // loadMarkets is stable, no need to include in deps
 
   const handleMarketCreated = (txId?: string) => {
     if (txId) addTransaction({ id: txId, label: 'Create market' });
@@ -181,75 +231,102 @@ const MarketsPage: NextPageWithLayout = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-center items-center min-h-[400px]">
-          <span className="loading loading-spinner loading-lg"></span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
       <NextSeo
-        title="Markets | Whisper Market"
+        title="Markets | WhisperMarket"
         description="Browse and participate in prediction markets"
       />
 
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8 flex flex-col sm:flex-row justify-between items-start gap-4">
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        <div className="mb-6 flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
-            <h1 className="text-4xl font-bold mb-2">Markets</h1>
-            <p className="text-base-content/70">
+            <h1 className="text-3xl sm:text-4xl font-bold mb-1">Markets</h1>
+            <p className="text-base-content/70 text-sm sm:text-base">
               Browse available markets and place your predictions
+              {!loading && markets.length > 0 && (
+                <span className="ml-2 text-base-content/60">· {markets.length} market{markets.length !== 1 ? 's' : ''}</span>
+              )}
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
             <button
-              className="btn btn-ghost"
+              className="btn btn-ghost btn-sm sm:btn-md gap-2"
               onClick={loadMarkets}
               disabled={loading || discovering}
               title="Refresh markets list"
             >
               {loading || discovering ? (
-                <span className="loading loading-spinner loading-sm"></span>
+                <span className="loading loading-spinner loading-sm" />
               ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span className="hidden sm:inline">Refresh</span>
+                </>
               )}
             </button>
             <button
-              className="btn btn-primary"
+              className="btn btn-primary btn-sm sm:btn-md"
               onClick={() => setShowCreateModal(true)}
               disabled={!isWalletConnected}
             >
-              {isWalletConnected ? 'Create Market' : 'Connect Wallet to Create'}
+              {isWalletConnected ? 'Create Market' : 'Connect to Create'}
             </button>
           </div>
         </div>
 
         {discovering && (
           <div className="alert alert-info mb-6">
-            <span className="loading loading-spinner loading-sm mr-2"></span>
+            <span className="loading loading-spinner loading-sm mr-2" />
             Discovering markets from chain...
           </div>
         )}
 
-        {markets.length === 0 && !loading ? (
+        {!loading && markets.length > 0 && (
+          <div className="mb-6 flex flex-col sm:flex-row gap-4">
+            <input
+              type="text"
+              placeholder="Search markets..."
+              className="input input-bordered input-sm sm:input-md w-full sm:max-w-xs"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <div className="flex flex-wrap gap-2">
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setCategoryFilter(cat)}
+                  className={`btn btn-sm ${categoryFilter === cat ? 'btn-primary' : 'btn-ghost'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </div>
+        ) : filteredMarkets.length === 0 ? (
           <div className="card bg-base-200 shadow-xl">
             <div className="card-body">
-              <h2 className="card-title text-warning">No Markets Available</h2>
+              <h2 className="card-title text-warning">No Markets Match</h2>
               <p className="text-base-content/80">
-                No markets have been discovered on-chain yet. Markets will appear here once they are initialized.
+                {markets.length === 0
+                  ? 'No markets have been discovered on-chain yet. Markets will appear here once they are initialized.'
+                  : 'No markets match your search or category filter. Try changing the filter or search.'}
               </p>
             </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {markets.map((market) => {
+            {filteredMarkets.map((market, idx) => {
               const priceYes = market.state
                 ? calculatePriceFromReserves(market.state.yesReserve, market.state.noReserve)
                 : 0;
@@ -258,12 +335,17 @@ const MarketsPage: NextPageWithLayout = () => {
               return (
                 <div
                   key={market.marketId}
-                  className="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow cursor-pointer"
+                  className="card bg-base-100 shadow-xl hover:shadow-2xl transition-all duration-200 cursor-pointer border border-transparent hover:border-base-300 rounded-xl hover:-translate-y-1"
                   onClick={() => handleMarketClick(market.marketId)}
                 >
                   <div className="card-body">
-                    <div className="flex justify-between items-start mb-2">
-                      <h2 className="card-title text-lg">{market.title}</h2>
+                    <div className="flex justify-between items-start gap-2 mb-2">
+                      <div className="flex-1">
+                        <h2 className="card-title text-lg leading-tight line-clamp-2">{market.title}</h2>
+                        {market.category && (
+                          <span className="badge badge-sm badge-outline mt-1">{market.category}</span>
+                        )}
+                      </div>
                       {market.state && getStatusBadge(market.state.status)}
                     </div>
 
@@ -277,23 +359,31 @@ const MarketsPage: NextPageWithLayout = () => {
                       </div>
                     ) : market.state ? (
                       <>
-                        <div className="stats stats-horizontal shadow w-full mb-4">
-                          <div className="stat py-2 px-3">
-                            <div className="stat-title text-xs">YES</div>
-                            <div className="stat-value text-sm text-success">
-                              {formatPriceCents(priceYes, { decimals: 1 })}
-                            </div>
-                          </div>
-                          <div className="stat py-2 px-3">
-                            <div className="stat-title text-xs">NO</div>
-                            <div className="stat-value text-sm text-error">
-                              {formatPriceCents(priceNo, { decimals: 1 })}
-                            </div>
-                          </div>
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="text-success font-bold">
+                            <AnimatedPrice priceBps={priceYes} decimals={1} showChange />{' '}
+                            <span className="text-base-content/60 font-normal text-xs">YES</span>
+                          </span>
+                          <span className="text-error font-bold">
+                            <AnimatedPrice priceBps={priceNo} decimals={1} showChange />{' '}
+                            <span className="text-base-content/60 font-normal text-xs">NO</span>
+                          </span>
                         </div>
-
-                        <div className="flex justify-between text-xs text-base-content/60 mb-2">
-                          <span>Pool: {toCredits(market.state.collateralPool).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits</span>
+                        <div className="flex w-full rounded-full overflow-hidden bg-base-200 h-3 mb-2">
+                          <div
+                            className="bg-success h-full transition-all"
+                            style={{ width: `${(priceYes / 10000) * 100}%` }}
+                          />
+                          <div
+                            className="bg-error h-full transition-all"
+                            style={{ width: `${(priceNo / 10000) * 100}%` }}
+                          />
+                        </div>
+                        <LiquidityBar
+                          collateralPool={market.state.collateralPool}
+                          className="mb-2"
+                        />
+                        <div className="flex justify-between text-xs text-base-content/60">
                           <span>Fee: {(market.state.feeBps / 100).toFixed(2)}%</span>
                         </div>
 
@@ -312,9 +402,7 @@ const MarketsPage: NextPageWithLayout = () => {
                     )}
 
                     <div className="card-actions justify-end mt-4">
-                      <button className="btn btn-primary btn-sm">
-                        View Market
-                      </button>
+                      <button className="btn btn-primary btn-sm">View Market</button>
                     </div>
                   </div>
                 </div>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { toCredits } from '@/utils/credits';
+import { LiquidityBar } from './LiquidityBar';
 
 interface MarketStatsProps {
   collateralPool: number;
@@ -19,9 +20,10 @@ export const MarketStats: React.FC<MarketStatsProps> = ({
     toCredits(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
   return (
-    <div className="card bg-base-100 shadow-xl">
+    <div className="card bg-base-100 shadow-xl rounded-xl">
       <div className="card-body py-4">
         <h3 className="card-title text-base mb-3">Market statistics</h3>
+        <LiquidityBar collateralPool={collateralPool} className="mb-4" />
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-lg bg-base-200/60 p-3">
             <div className="text-xs text-base-content/60 uppercase tracking-wide mb-0.5">Pool</div>

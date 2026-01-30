@@ -86,7 +86,7 @@ export const AdminMarketCard: React.FC<AdminMarketCardProps> = ({
   };
 
   return (
-    <div className="card bg-base-100 shadow-xl">
+    <div className="card bg-base-100 shadow-xl rounded-xl border border-base-200">
       <div className="card-body">
         <div className="flex items-start justify-between mb-4">
           <div>

@@ -95,7 +95,7 @@ export const DepositSection: React.FC<DepositSectionProps> = ({
   };
 
   return (
-    <div className="card bg-base-100 shadow-xl">
+    <div className="card bg-base-100 shadow-xl rounded-xl">
       <div className="card-body">
         <h3 className="card-title text-base mb-2">Add collateral</h3>
         <p className="text-sm text-base-content/70 mb-2">

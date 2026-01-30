@@ -48,7 +48,7 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({ positions })
   ).length;
 
   return (
-    <div className="card bg-base-100 shadow-xl mb-6">
+    <div className="card bg-base-100 shadow-xl mb-6 rounded-xl border border-base-200">
       <div className="card-body">
         <h2 className="card-title mb-4">Portfolio Summary</h2>
         <div className="stats stats-vertical lg:stats-horizontal shadow w-full">

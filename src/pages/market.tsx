@@ -4,6 +4,8 @@ import { NextSeo } from 'next-seo';
 import Layout from '@/layouts/_layout';
 import { useRouter } from 'next/router';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
+import Link from 'next/link';
+import routes from '@/config/routes';
 import { MarketHeader } from '@/components/market/MarketHeader';
 import { PriceDisplay } from '@/components/market/PriceDisplay';
 import { MarketPositionCard } from '@/components/market/MarketPositionCard';
@@ -29,9 +31,8 @@ const MarketPage: NextPageWithLayout = () => {
   const [refreshingRecords, setRefreshingRecords] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [transactionId, setTransactionId] = useState<string | null>(null);
+  const [dismissedTxId, setDismissedTxId] = useState<string | null>(null);
 
-  // Get market ID from query parameter
-  // Usage: /market?marketId=0field or /market?marketId=1field
   const marketId = (router.query.marketId as string) || null;
 
   useEffect(() => {
@@ -112,10 +113,12 @@ const MarketPage: NextPageWithLayout = () => {
   const handleTransactionSubmitted = (txId: string, label?: string) => {
     addTransaction({ id: txId, label: label ?? 'Transaction' });
     setTransactionId(txId);
+    setDismissedTxId(null);
     setTimeout(() => {
       loadMarketState();
       loadUserPosition();
     }, 3000);
+    setTimeout(() => setTransactionId((prev) => (prev === txId ? null : prev)), 8000);
   };
 
   const handleRefreshRecords = async () => {
@@ -220,10 +223,32 @@ const MarketPage: NextPageWithLayout = () => {
         description={displayDescription}
       />
 
-      <div className="container mx-auto px-4 py-8">
-        {transactionId && (
-          <div className="alert alert-success mb-4">
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        <div className="mb-4">
+          <Link
+            href={routes.markets}
+            className="inline-flex items-center gap-2 text-base-content/70 hover:text-base-content text-sm font-medium"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Markets
+          </Link>
+        </div>
+
+        {transactionId && dismissedTxId !== transactionId && (
+          <div className="alert alert-success mb-4 flex items-center justify-between gap-4">
             <span>Transaction submitted: {transactionId}</span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm btn-circle"
+              onClick={() => setDismissedTxId(transactionId ?? null)}
+              aria-label="Dismiss"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         )}
 
@@ -270,7 +295,7 @@ const MarketPage: NextPageWithLayout = () => {
             />
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-4 lg:sticky lg:top-24 lg:self-start">
             <DepositSection
               marketId={marketId}
               userPosition={userPosition}

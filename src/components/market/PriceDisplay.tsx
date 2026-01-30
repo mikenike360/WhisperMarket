@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { calculatePriceFromReserves } from '@/utils/positionHelpers';
-import { formatPriceCents } from '@/utils/priceDisplay';
+import { AnimatedPrice } from '@/components/ui/AnimatedPrice';
 
 interface PriceDisplayProps {
   yesReserve: number;
@@ -11,44 +11,48 @@ export const PriceDisplay: React.FC<PriceDisplayProps> = ({
   yesReserve,
   noReserve,
 }) => {
-  // Calculate price from AMM reserves (basis points)
-  const priceYes = calculatePriceFromReserves(yesReserve, noReserve);
-  const priceNo = 10000 - priceYes;
+  const [priceYes, setPriceYes] = useState(() =>
+    calculatePriceFromReserves(yesReserve, noReserve)
+  );
+  const [priceNo, setPriceNo] = useState(() => 10000 - priceYes);
+
+  useEffect(() => {
+    const newPriceYes = calculatePriceFromReserves(yesReserve, noReserve);
+    const newPriceNo = 10000 - newPriceYes;
+    setPriceYes(newPriceYes);
+    setPriceNo(newPriceNo);
+  }, [yesReserve, noReserve]);
 
   return (
-    <div className="card bg-base-100 shadow-xl mb-6">
+    <div className="card bg-base-100 shadow-xl mb-6 rounded-xl">
       <div className="card-body">
-        <h3 className="card-title mb-1">Current price per share</h3>
+        <h3 className="card-title mb-1">Probability / Price per share</h3>
         <p className="text-sm text-base-content/60 mb-4" title="¢ = cents per share">
-          Price per share in cents (¢)
+          Price per share in cents (¢). YES + NO = 100¢.
         </p>
 
-        <div className="space-y-4">
-          {/* YES Price */}
-          <div>
-            <div className="flex justify-between mb-2">
-              <span className="font-semibold text-success">YES</span>
-              <span className="font-bold text-success">{formatPriceCents(priceYes)}</span>
-            </div>
-            <progress
-              className="progress progress-success w-full"
-              value={priceYes}
-              max={10000}
-            />
-          </div>
+        <div className="flex justify-between items-baseline mb-2">
+          <span className="text-success font-bold text-2xl sm:text-3xl">
+            <AnimatedPrice priceBps={priceYes} decimals={1} showChange />
+          </span>
+          <span className="text-base-content/60 text-sm font-medium">YES</span>
+        </div>
+        <div className="flex w-full rounded-full overflow-hidden bg-base-200 h-4 mb-4">
+          <div
+            className="bg-success h-full transition-all duration-300"
+            style={{ width: `${(priceYes / 10000) * 100}%` }}
+          />
+          <div
+            className="bg-error h-full transition-all duration-300"
+            style={{ width: `${(priceNo / 10000) * 100}%` }}
+          />
+        </div>
 
-          {/* NO Price */}
-          <div>
-            <div className="flex justify-between mb-2">
-              <span className="font-semibold text-error">NO</span>
-              <span className="font-bold text-error">{formatPriceCents(priceNo)}</span>
-            </div>
-            <progress
-              className="progress progress-error w-full"
-              value={priceNo}
-              max={10000}
-            />
-          </div>
+        <div className="flex justify-between items-baseline mb-2">
+          <span className="text-error font-bold text-2xl sm:text-3xl">
+            <AnimatedPrice priceBps={priceNo} decimals={1} showChange />
+          </span>
+          <span className="text-base-content/60 text-sm font-medium">NO</span>
         </div>
       </div>
     </div>

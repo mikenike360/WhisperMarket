@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @plugin "daisyui" {
-  themes: light --default, dark --prefersdark, cupcake, bumblebee, emerald, forest, aqua, lofi, pastel, fantasy, wireframe, black, luxury, dracula, synthwave;
+  themes: black --default, luxury, forest, synthwave;
 }
 @plugin "@tailwindcss/typography";
 @plugin "@tailwindcss/forms";
@@ -42,6 +42,7 @@
   --animate-drip-expand: expand 500ms ease-in forwards;
   --animate-drip-expand-large: expand-large 600ms ease-in forwards;
   --animate-move-up-small: moveUpSmall 500ms infinite alternate;
+  --animate-scroll-ticker: scroll-ticker 60s linear infinite;
   
   @keyframes blink {
     0% { opacity: 0.2; }
@@ -76,6 +77,11 @@
     30% { opacity: 1; }
     80% { opacity: 0.5; }
     100% { transform: scale(96); opacity: 0; }
+  }
+  
+  @keyframes scroll-ticker {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
   }
   
   --breakpoint-xs: 500px;
@@ -127,6 +133,15 @@
   .text-vertical {
     writing-mode: tb;
     text-orientation: upright;
+  }
+  .animate-scroll-ticker {
+    animation: scroll-ticker 30s linear infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-scroll-ticker {
+    animation: none !important;
   }
 }
 

@@ -131,7 +131,7 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
      (marketState.outcome === false && position.noShares > 0));
 
   return (
-    <div className="card bg-base-100 shadow-xl">
+    <div className="card bg-base-100 shadow-xl rounded-xl hover:shadow-2xl transition-all duration-200 border border-transparent hover:border-base-300 hover:-translate-y-1">
       <div className="card-body">
         <div className="flex items-start justify-between mb-4">
           <div className="flex-1">
@@ -220,7 +220,7 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
             <div className="badge badge-success">Redeemed</div>
           )}
           <Link
-            href={`/market?marketId=${marketId}`}
+            href={`/market?marketId=${encodeURIComponent(marketId)}`}
             className="btn btn-primary btn-sm"
           >
             View Market

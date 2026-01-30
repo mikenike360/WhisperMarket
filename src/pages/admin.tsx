@@ -260,10 +260,9 @@ const AdminPage: NextPageWithLayout = () => {
     setAdminSignedInState(false);
   };
 
-  // Access control checks
   if (!userAddress) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="alert alert-warning">
           <span>Please connect your wallet to access the admin panel</span>
         </div>
@@ -273,7 +272,7 @@ const AdminPage: NextPageWithLayout = () => {
 
   if (!isAdminAddressMatch) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="alert alert-error">
           <span>Access denied. This page is only accessible to the admin wallet.</span>
           <div className="text-sm mt-2">
@@ -284,13 +283,12 @@ const AdminPage: NextPageWithLayout = () => {
     );
   }
 
-  // Admin address connected but not yet signed in
   if (!adminSignedIn) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <NextSeo title="Admin Sign In" description="Sign in to the admin panel" />
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        <NextSeo title="Admin Sign In | WhisperMarket" description="Sign in to the admin panel" />
         <div className="max-w-md mx-auto">
-          <div className="card bg-base-100 shadow-xl">
+          <div className="card bg-base-100 shadow-xl rounded-xl">
             <div className="card-body">
               <h1 className="card-title text-2xl">Admin Sign In</h1>
               <p className="text-base-content/70">
@@ -331,89 +329,91 @@ const AdminPage: NextPageWithLayout = () => {
 
   return (
     <>
-      <NextSeo title="Admin Dashboard" description="Manage prediction markets" />
+      <NextSeo title="Admin | WhisperMarket" description="Manage prediction markets" />
 
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        <div className="flex flex-col sm:flex-row items-start justify-between mb-8 gap-4">
           <div>
-            <h1 className="text-4xl font-bold mb-2">Admin Dashboard</h1>
-            <p className="text-base-content/70">
-              Connected as: <code className="text-xs">{String(userAddress).slice(0, 30)}...</code>
+            <h1 className="text-3xl sm:text-4xl font-bold mb-1">Admin</h1>
+            <p className="text-base-content/70 text-sm sm:text-base">
+              Manage prediction markets. Connected as <code className="text-xs bg-base-200 px-1.5 py-0.5 rounded">{String(userAddress).slice(0, 16)}…</code>
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <button
               type="button"
               className="btn btn-ghost btn-sm"
               onClick={handleAdminSignOut}
               title="Sign out from admin (you will need to sign again to access)"
             >
-              Sign out from admin
+              Sign out
             </button>
             <button
-              className="btn btn-primary"
+              type="button"
+              className="btn btn-primary btn-sm sm:btn-md gap-2"
               onClick={loadMarkets}
               disabled={loading}
             >
-            {loading ? (
-              <>
-                <span className="loading loading-spinner"></span>
-                Loading...
-              </>
-            ) : (
-              <>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-5 w-5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
-                Refresh
-              </>
-            )}
-          </button>
+              {loading ? (
+                <>
+                  <span className="loading loading-spinner loading-sm" />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4 sm:h-5 sm:w-5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                  Refresh
+                </>
+              )}
+            </button>
           </div>
         </div>
 
         {error && (
-          <div className="alert alert-error mb-6">
+          <div className="alert alert-error mb-6 flex items-center justify-between gap-4">
             <span>{error}</span>
-            <button
-              className="btn btn-sm btn-ghost"
-              onClick={() => setError(null)}
-            >
-              ✕
+            <button className="btn btn-sm btn-ghost" onClick={() => setError(null)} aria-label="Dismiss">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
         )}
 
         {successMessage && (
-          <div className="alert alert-success mb-6">
+          <div className="alert alert-success mb-6 flex items-center justify-between gap-4">
             <span>{successMessage}</span>
-            <button
-              className="btn btn-sm btn-ghost"
-              onClick={() => setSuccessMessage(null)}
-            >
-              ✕
+            <button className="btn btn-sm btn-ghost" onClick={() => setSuccessMessage(null)} aria-label="Dismiss">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
         )}
 
         {loading && markets.length === 0 ? (
           <div className="flex justify-center items-center min-h-[400px]">
-            <span className="loading loading-spinner loading-lg"></span>
+            <span className="loading loading-spinner loading-lg" />
           </div>
         ) : markets.length === 0 ? (
-          <div className="alert alert-info">
-            <span>No markets found. Create a market to get started.</span>
+          <div className="card bg-base-200 shadow-xl rounded-xl">
+            <div className="card-body">
+              <h2 className="card-title text-info">No markets found</h2>
+              <p className="text-base-content/80">Create a market from the Markets page to get started.</p>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

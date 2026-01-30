@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { NextPageWithLayout } from '@/types';
 import { NextSeo } from 'next-seo';
 import Layout from '@/layouts/_layout';
+import Link from 'next/link';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import {
   getMarketState,
@@ -11,6 +12,8 @@ import { UserPosition, MarketState, MarketMetadata, PREDICTION_MARKET_PROGRAM_ID
 import { PortfolioPositionCard } from '@/components/portfolio/PortfolioPositionCard';
 import { PortfolioSummary } from '@/components/portfolio/PortfolioSummary';
 import { getMarketsMetadata } from '@/services/marketMetadata';
+import { SkeletonCard } from '@/components/ui/SkeletonCard';
+import routes from '@/config/routes';
 
 interface PositionWithData {
   position: UserPosition;
@@ -115,11 +118,27 @@ const PortfolioPage: NextPageWithLayout = () => {
     return () => clearInterval(interval);
   }, [userAddress, wallet]);
 
+  const shortAddress = userAddress
+    ? `${String(userAddress).slice(0, 12)}…${String(userAddress).slice(-8)}`
+    : '';
+
+  const copyAddress = () => {
+    if (userAddress) navigator.clipboard.writeText(userAddress);
+  };
+
   if (!userAddress) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="alert alert-warning">
-          <span>Please connect your wallet to view your portfolio</span>
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        <div className="card bg-base-200 shadow-xl max-w-xl mx-auto rounded-xl">
+          <div className="card-body items-center text-center py-12">
+            <h1 className="text-2xl font-bold mb-2">Your Portfolio</h1>
+            <p className="text-base-content/70 mb-4">
+              Connect your Aleo wallet to see your positions and trading history.
+            </p>
+            <p className="text-sm text-base-content/60 mb-6">
+              Use the Connect Wallet button in the header to get started.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -127,31 +146,42 @@ const PortfolioPage: NextPageWithLayout = () => {
 
   return (
     <>
-      <NextSeo title="Portfolio" description="View your prediction market positions" />
+      <NextSeo title="Portfolio | WhisperMarket" description="View your prediction market positions" />
 
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-8">
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-8">
           <div>
-            <h1 className="text-4xl font-bold mb-2">Your Portfolio</h1>
-            <p className="text-base-content/70">
-              Connected as: <code className="text-xs">{String(userAddress).slice(0, 30)}...</code>
-            </p>
+            <h1 className="text-3xl sm:text-4xl font-bold mb-2">Your Portfolio</h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-base-content/70 text-sm">Connected:</span>
+              <code className="text-xs bg-base-200 px-2 py-1 rounded font-mono">{shortAddress}</code>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                onClick={copyAddress}
+                title="Copy address"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h2m8 0h2a2 2 0 012 2v2m0 0V6a2 2 0 00-2-2h-2m-4 0H6" />
+                </svg>
+              </button>
+            </div>
           </div>
           <button
-            className="btn btn-primary"
+            className="btn btn-primary btn-sm sm:btn-md gap-2"
             onClick={loadPortfolio}
             disabled={loading}
           >
             {loading ? (
               <>
-                <span className="loading loading-spinner"></span>
+                <span className="loading loading-spinner loading-sm" />
                 Loading...
               </>
             ) : (
               <>
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  className="h-5 w-5"
+                  className="h-4 w-4 sm:h-5 sm:w-5"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -170,28 +200,37 @@ const PortfolioPage: NextPageWithLayout = () => {
         </div>
 
         {error && (
-          <div className="alert alert-error mb-6">
+          <div className="alert alert-error mb-6 flex items-center justify-between gap-4">
             <span>{error}</span>
-            <button
-              className="btn btn-sm btn-ghost"
-              onClick={() => setError(null)}
-            >
-              ✕
+            <button className="btn btn-sm btn-ghost" onClick={() => setError(null)} aria-label="Dismiss">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
         )}
 
         {loading && positions.length === 0 ? (
-          <div className="flex justify-center items-center min-h-[400px]">
-            <span className="loading loading-spinner loading-lg"></span>
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <SkeletonCard key={i} />
+            ))}
           </div>
         ) : positions.length === 0 ? (
-          <div className="alert alert-info">
-            <span>You have no positions yet. Start trading on the markets page!</span>
-            <div className="mt-4">
-              <a href="/markets" className="btn btn-primary btn-sm">
+          <div className="card bg-base-200 shadow-xl rounded-xl">
+            <div className="card-body items-center text-center py-16">
+              <div className="text-4xl text-base-content/40 mb-4" aria-hidden>
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-16 h-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586A1 1 0 0114.414 9H19a2 2 0 012 2v10a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <h2 className="card-title text-lg mb-2">You have no positions yet</h2>
+              <p className="text-base-content/70 mb-6 max-w-sm">
+                Start trading on the markets page to build your portfolio.
+              </p>
+              <Link href={routes.markets} className="btn btn-primary">
                 Browse Markets
-              </a>
+              </Link>
             </div>
           </div>
         ) : (

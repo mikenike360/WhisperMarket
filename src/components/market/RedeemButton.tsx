@@ -110,7 +110,7 @@ export const RedeemButton: React.FC<RedeemButtonProps> = ({
   }
 
   return (
-    <div className="card bg-base-100 shadow-xl">
+    <div className="card bg-base-100 shadow-xl rounded-xl">
       <div className="card-body">
         <h3 className="card-title mb-4">Redeem Winning Shares</h3>
 
