@@ -1,6 +1,6 @@
 # Whisper Market
 
-A decentralized prediction market application built on the Aleo blockchain. Users can create markets, buy positions, and redeem winnings based on market outcomes.
+**Built for [AKINDO Wave Hacks](https://app.akindo.io/wave-hacks/gXdXJvJXxTJKBELvo?tab=overview)** — a private prediction market on the Aleo blockchain. Create markets, take YES/NO positions, and redeem winnings with end-to-end privacy (private fees and private transfers).
 
 ## Features
 
@@ -179,6 +179,11 @@ When users **create markets**, **deposit** collateral, **buy or sell** shares, a
 2. **Private transfers** — The program uses private Aleo token transfers only. Collateral, shares, and payouts are represented as private records (inputs and outputs of the program); only the user and the program logic see amounts and ownership.
 
 As a result, market creation, deposits, share trades, and redemptions are all privacy-preserving: balances, positions, and fee payments stay encrypted, while only the necessary public state (e.g. market existence, resolution outcome) is exposed.
+
+## Submission
+
+- **Event:** [AKINDO Wave Hacks](https://app.akindo.io/wave-hacks)
+- **Project:** [Whisper Market — Overview](https://app.akindo.io/wave-hacks/gXdXJvJXxTJKBELvo?tab=overview)
 
 ## License
 
