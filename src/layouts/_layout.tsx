@@ -11,7 +11,6 @@ import { TransactionTracker } from '@/components/transactions/TransactionTracker
 import { ScrollingTicker } from '@/components/ui/ScrollingTicker';
 import { HeaderStats } from '@/components/ui/HeaderStats';
 import routes from '@/config/routes';
-import { isAdminAddress, hasValidAdminSignIn } from '@/config/admin';
 
 require('@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css');
 
@@ -59,9 +58,6 @@ function HeaderRightArea() {
 export function Header() {
   const windowScroll = useWindowScroll();
   const isMounted = useIsMounted();
-  const { publicKey, address } = useWallet();
-  const userAddress = publicKey || address;
-  const showAdminLink = userAddress && isAdminAddress(userAddress) && hasValidAdminSignIn(userAddress);
 
   return (
     <nav
@@ -85,11 +81,6 @@ export function Header() {
             <Link href={routes.portfolio} className="link link-hover font-medium text-sm sm:text-base">
               Portfolio
             </Link>
-            {showAdminLink && (
-              <Link href={routes.admin} className="link link-hover font-medium text-sm sm:text-base">
-                Admin
-              </Link>
-            )}
           </nav>
         </div>
         <div className="flex items-center">

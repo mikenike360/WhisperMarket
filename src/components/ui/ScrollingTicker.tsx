@@ -110,8 +110,25 @@ export function ScrollingTicker() {
     return [...tickerItems, ...tickerItems];
   }, [tickerItems]);
 
-  if (loading || tickerItems.length === 0) {
-    return null;
+  // Always show ticker, even if no markets (show placeholder or empty state)
+  if (loading) {
+    return (
+      <div className="hidden md:block fixed top-16 sm:top-20 z-20 w-full bg-base-200 border-b border-base-300 h-10 overflow-hidden">
+        <div className="flex items-center justify-center h-full">
+          <span className="text-xs text-base-content/60">Loading markets...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (tickerItems.length === 0) {
+    return (
+      <div className="hidden md:block fixed top-16 sm:top-20 z-20 w-full bg-base-200 border-b border-base-300 h-10 overflow-hidden">
+        <div className="flex items-center justify-center h-full">
+          <span className="text-xs text-base-content/60">No active markets</span>
+        </div>
+      </div>
+    );
   }
 
   return (

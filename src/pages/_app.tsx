@@ -92,7 +92,9 @@ function CustomApp({ Component, pageProps }: AppPropsWithLayout) {
             </WalletModalProvider>
           </AleoWalletProvider>
         </Hydrate>
-        <ReactQueryDevtools initialIsOpen={false} position="bottom-right" />
+        {process.env.NODE_ENV === 'development' && (
+          <ReactQueryDevtools initialIsOpen={false} position="bottom-right" />
+        )}
       </QueryClientProvider>
     </>
   );

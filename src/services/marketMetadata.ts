@@ -15,7 +15,111 @@ export type CreateMarketMetadataInput = {
   metadata_hash?: string;
 };
 
+export type PendingMarketMetadataInput = {
+  transaction_id: string;
+  title: string;
+  description: string;
+  category?: string;
+  creator_address?: string;
+  metadata_hash?: string;
+};
+
 const TABLE = 'markets';
+const PENDING_TABLE = 'pending_markets'; // Table for markets pending market_id
+
+/**
+ * Save metadata immediately when market is created (before market_id is known)
+ * Uses transaction_id as temporary identifier
+ */
+export async function savePendingMarketMetadata(data: PendingMarketMetadataInput): Promise<boolean> {
+  const client = getSupabase();
+  if (!client) return false;
+  try {
+    const { error } = await client.from(PENDING_TABLE).upsert({
+      transaction_id: data.transaction_id,
+      title: data.title,
+      description: data.description,
+      category: data.category ?? 'General',
+      creator_address: data.creator_address ?? null,
+      metadata_hash: data.metadata_hash ?? null,
+      created_at: new Date().toISOString(),
+    }, {
+      onConflict: 'transaction_id',
+    });
+    
+    if (error) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get pending metadata by transaction ID
+ */
+export async function getPendingMarketMetadata(transactionId: string): Promise<PendingMarketMetadataInput | null> {
+  const client = getSupabase();
+  if (!client) return null;
+  try {
+    const { data, error } = await client
+      .from(PENDING_TABLE)
+      .select('*')
+      .eq('transaction_id', transactionId)
+      .single();
+    
+    if (error || !data) return null;
+    return {
+      transaction_id: data.transaction_id,
+      title: data.title,
+      description: data.description,
+      category: data.category,
+      creator_address: data.creator_address,
+      metadata_hash: data.metadata_hash,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Move pending metadata to main markets table once market_id is known
+ */
+export async function finalizePendingMarketMetadata(
+  transactionId: string,
+  marketId: string
+): Promise<boolean> {
+  const client = getSupabase();
+  if (!client) return false;
+  
+  try {
+    // Get pending metadata
+    const pending = await getPendingMarketMetadata(transactionId);
+    if (!pending) {
+      // No pending metadata, just create with defaults
+      return false;
+    }
+    
+    // Save to main markets table
+    const saved = await createMarketMetadata({
+      market_id: marketId,
+      title: pending.title,
+      description: pending.description,
+      category: pending.category,
+      creator_address: pending.creator_address ?? undefined,
+      transaction_id: transactionId,
+      metadata_hash: pending.metadata_hash ?? undefined,
+    });
+    
+    if (saved) {
+      // Delete from pending table
+      await client.from(PENDING_TABLE).delete().eq('transaction_id', transactionId);
+    }
+    
+    return saved;
+  } catch {
+    return false;
+  }
+}
 
 export async function createMarketMetadata(data: CreateMarketMetadataInput): Promise<boolean> {
   const client = getSupabase();

@@ -3,7 +3,7 @@ import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { initMarket, getTotalMarketsCount, getMarketIdAtIndex, fetchMarketCreator, clearMarketRegistryCache } from '@/lib/aleo/rpc';
 import { filterUnspentRecords } from '@/lib/aleo/wallet/records';
 import { getFeeForFunction } from '@/utils/feeCalculator';
-import { createMarketMetadata, getMarketMetadata } from '@/services/marketMetadata';
+import { createMarketMetadata, getMarketMetadata, savePendingMarketMetadata, finalizePendingMarketMetadata } from '@/services/marketMetadata';
 
 // Constants from the Leo program
 // Note: MIN_LIQUIDITY in Leo is 1000 microcredits = 0.001 credits
@@ -187,24 +187,17 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
       setSuccess(true);
       onSuccess?.(transactionId);
 
-      // Store metadata temporarily in localStorage so we can save it when we find the market
-      // This prevents race conditions where markets are discovered before metadata is saved
-      if (transactionId && typeof window !== 'undefined') {
-        try {
-          const pendingMetadata = {
-            transactionId,
-            title: title || '',
-            description: description || '',
-            category: 'General',
-            creatorAddress: String(userPublicKey),
-            metadataHash,
-            timestamp: Date.now(),
-          };
-          const pendingKey = `pending_market_metadata_${transactionId}`;
-          localStorage.setItem(pendingKey, JSON.stringify(pendingMetadata));
-        } catch {
-          // Ignore localStorage errors
-        }
+      // Save metadata to Supabase immediately using transaction_id
+      // This ensures metadata is saved right away, even before market_id is known
+      if (transactionId) {
+        await savePendingMarketMetadata({
+          transaction_id: transactionId,
+          title: title || `Market ${transactionId.slice(0, 8)}...`,
+          description: description || 'Prediction market',
+          category: 'General',
+          creator_address: String(userPublicKey),
+          metadata_hash: metadataHash,
+        });
       }
 
       // Poll total_markets mapping; when count increases, new market is at (count - 1), save metadata
@@ -234,24 +227,23 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
                     // Ignore; we'll use userPublicKey
                   }
                   
-                  const existing = await getMarketMetadata(marketId);
-                  const saved = await createMarketMetadata({
-                    market_id: marketId,
-                    title: title || `Market ${marketId.slice(0, 8)}...`,
-                    description: description || 'Prediction market',
-                    category: 'General',
-                    creator_address: creator ?? String(userPublicKey),
-                    transaction_id: transactionId,
-                    metadata_hash: metadataHash,
-                  });
+                  // Finalize pending metadata now that we have the market_id
+                  await finalizePendingMarketMetadata(transactionId, marketId);
                   
-                  if (typeof window !== 'undefined') {
-                    try {
-                      localStorage.removeItem(`pending_market_metadata_${transactionId}`);
-                    } catch (err) {
-                      /* ignore */
-                    }
+                  // Also ensure it's in the main table (in case finalize failed)
+                  const existing = await getMarketMetadata(marketId);
+                  if (!existing) {
+                    await createMarketMetadata({
+                      market_id: marketId,
+                      title: title || `Market ${marketId.slice(0, 8)}...`,
+                      description: description || 'Prediction market',
+                      category: 'General',
+                      creator_address: creator ?? String(userPublicKey),
+                      transaction_id: transactionId,
+                      metadata_hash: metadataHash,
+                    });
                   }
+                  
                   return;
                 }
               }
