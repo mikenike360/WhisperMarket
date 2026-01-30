@@ -10,38 +10,20 @@ export const CURRENT_NETWORK: Network = Network.TESTNET;
 //MAINNET_RPC_URL=https://mainnet.aleorpc.com
 export const CURRENT_RPC_URL = "https://testnetbeta.aleorpc.com";
 
+// AleoScan API URLs for mapping reads (more reliable than JSON-RPC)
+export const ALEOSCAN_API_URL = "https://testnet.aleoscan.io/api";
+export const ALEOSCAN_MAINNET_API_URL = "https://api.aleoscan.io";
+
 export type NextPageWithLayout<P = {}> = NextPage<P> & {
   authorization?: boolean;
   getLayout?: (page: ReactElement) => ReactNode;
 };
 
-// src/types/index.ts
-export type ProposalData = {
-  bountyId: number;
-  proposalId: number;
-  proposerAddress: string;
-  proposalText?: string;
-  fileName?: string;
-  fileUrl?: string;
-  status?: string;
-  rewardSent?: boolean;
-};
-
-export type BountyData = {
-  id: number;
-  title: string;
-  reward: string;
-  deadline: string;
-  creatorAddress: string;
-  proposals?: ProposalData[];
-};
-
-export const BOUNTY_PROGRAM_ID = 'zkontract.aleo';
+export const CREDITS_PROGRAM_ID = 'credits.aleo';
 
 // Prediction Market Types
-// Program ID: prediction_market_testing.aleo
-// Deployed address: at17m27s7dw5pszldlut6p780jxvuuda2xl6k7tv39tt9zptyz8dqyq3hxjs8
-export const PREDICTION_MARKET_PROGRAM_ID = 'prediction_market_testing.aleo';
+// Program ID: prediction_market_testing_v3.aleo
+export const PREDICTION_MARKET_PROGRAM_ID = 'prediction_market_testing_v3.aleo';
 
 export type MarketState = {
   status: number; // 0=open, 1=resolved, 2=paused

@@ -7,9 +7,12 @@ import {
   swapCollateralForYesPrivate,
   swapCollateralForNoPrivate,
   getUserPositionRecords,
+  getMarketState,
+  findPositionRecordForMarket,
 } from '@/components/aleo/rpc';
-import { getMarketState } from '@/components/aleo/rpc';
+import { filterUnspentRecords, pickRecordForAmount } from '@/components/aleo/wallet/records';
 import { calculateSwapOutput } from '@/utils/positionHelpers';
+import { toMicrocredits, toCredits } from '@/utils/credits';
 import { PREDICTION_MARKET_PROGRAM_ID, MarketState } from '@/types';
 
 interface BuyFormProps {
@@ -29,19 +32,20 @@ export const BuyForm: React.FC<BuyFormProps> = ({
   isPaused,
   onTransactionSubmitted,
 }) => {
-  const { publicKey, wallet } = useWallet();
+  const { publicKey, wallet, address, requestRecords } = useWallet();
+  const userAddress = publicKey || address;
   const [amount, setAmount] = useState<string>('');
   const [side, setSide] = useState<'yes' | 'no'>('yes');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasPosition, setHasPosition] = useState(false);
   const [positionRecord, setPositionRecord] = useState<any>(null);
-  const [estimatedOutput, setEstimatedOutput] = useState<number | null>(null);
+  const [estimatedOutputMicrocredits, setEstimatedOutputMicrocredits] = useState<number | null>(null);
 
   // Check for existing position and fetch the record object
   useEffect(() => {
     const checkPosition = async () => {
-      if (!wallet || !publicKey || !marketId) {
+      if (!wallet || !userAddress || !marketId) {
         setHasPosition(false);
         setPositionRecord(null);
         return;
@@ -51,23 +55,14 @@ export const BuyForm: React.FC<BuyFormProps> = ({
         const position = await getUserPositionRecords(
           wallet,
           PREDICTION_MARKET_PROGRAM_ID,
-          marketId
+          marketId,
+          requestRecords ?? undefined
         );
         setHasPosition(position !== null);
         
-        // Fetch the actual record object for transactions
-        if (position) {
-          const allRecords = await wallet.requestRecords(PREDICTION_MARKET_PROGRAM_ID);
-          const recordObj = allRecords.find((r: any) => {
-            if (r.spent) return false;
-            const recordData = r.data || r;
-            if (recordData.market_id) {
-              const recordMarketId = String(recordData.market_id).replace(/\.private$/, '');
-              return recordMarketId === marketId;
-            }
-            return false;
-          });
-          setPositionRecord(recordObj || null);
+        if (position && requestRecords) {
+          const allRecords = await requestRecords(PREDICTION_MARKET_PROGRAM_ID);
+          setPositionRecord(findPositionRecordForMarket(allRecords ?? [], marketId));
         } else {
           setPositionRecord(null);
         }
@@ -78,89 +73,90 @@ export const BuyForm: React.FC<BuyFormProps> = ({
     };
 
     checkPosition();
-  }, [wallet, publicKey, marketId]);
+  }, [wallet, userAddress, marketId, requestRecords]);
 
-  // Calculate estimated output when amount or side changes
+  // Calculate estimated output when amount or side changes (all amounts in microcredits)
   useEffect(() => {
     if (!marketState || !amount) {
-      setEstimatedOutput(null);
+      setEstimatedOutputMicrocredits(null);
       return;
     }
 
-    const collateralIn = parseFloat(amount);
-    if (isNaN(collateralIn) || collateralIn <= 0) {
-      setEstimatedOutput(null);
+    const collateralInCredits = parseFloat(amount);
+    if (isNaN(collateralInCredits) || collateralInCredits <= 0) {
+      setEstimatedOutputMicrocredits(null);
       return;
     }
 
     try {
+      const collateralInMicrocredits = toMicrocredits(collateralInCredits);
       const output = calculateSwapOutput(
-        collateralIn,
+        collateralInMicrocredits,
         marketState.yesReserve,
         marketState.noReserve,
         marketState.feeBps,
         side
       );
-      setEstimatedOutput(output);
+      setEstimatedOutputMicrocredits(output);
     } catch (err) {
-      setEstimatedOutput(null);
+      setEstimatedOutputMicrocredits(null);
     }
   }, [amount, side, marketState]);
 
   const handleDeposit = async () => {
-    if (!publicKey || !wallet) {
+    if (!userAddress || !wallet) {
       setError('Please connect your wallet');
       return;
     }
 
-    const depositAmount = parseFloat(amount);
-    if (isNaN(depositAmount) || depositAmount <= 0) {
+    const depositAmountCredits = parseFloat(amount);
+    if (isNaN(depositAmountCredits) || depositAmountCredits <= 0) {
       setError('Please enter a valid amount');
       return;
     }
 
+    const depositMicrocredits = Math.floor(toMicrocredits(depositAmountCredits));
+    if (depositMicrocredits < 1) {
+      setError('Deposit amount is too small (minimum 1 microcredit)');
+      return;
+    }
     setLoading(true);
     setError(null);
 
     try {
-      // Fetch credit records from wallet
-      const creditRecords = await wallet.requestRecords('credits.aleo');
-      const unspentCredits = creditRecords.filter(
-        (r: any) => !r.spent && r.data?.microcredits
-      );
-
+      if (!requestRecords) {
+        throw new Error('Wallet does not support record access. Please use a wallet that supports viewing records.');
+      }
+      const creditRecords = await requestRecords('credits.aleo');
+      const unspentCredits = filterUnspentRecords(creditRecords ?? []);
       if (unspentCredits.length === 0) {
         throw new Error('No unspent credit records found');
       }
-
-      // Find a credit record with sufficient balance
-      const neededAmount = depositAmount * 1_000_000; // Convert to microcredits
-      const creditRecord = unspentCredits.find((r: any) => {
-        const value = parseInt(r.data.microcredits.replace(/u64\.private$/, ''), 10);
-        return value >= neededAmount;
-      });
-
-      if (!creditRecord) {
+      const chosen = pickRecordForAmount(unspentCredits, depositMicrocredits);
+      if (!chosen) {
         throw new Error('No credit record with sufficient balance');
       }
+      const creditRecord = chosen.record;
 
       let txId: string;
       if (hasPosition && positionRecord) {
-        // Use deposit_private for existing position
         txId = await depositPrivate(
+          wallet,
+          userAddress,
           marketId,
           creditRecord,
-          depositAmount,
+          depositMicrocredits,
           positionRecord,
-          0 // status_hint: 0 = open
+          0
         );
       } else {
-        // Use open_position_private for new position
         txId = await openPositionPrivate(
+          wallet,
+          userAddress,
           marketId,
           creditRecord,
-          depositAmount,
-          0 // status_hint: 0 = open
+          depositMicrocredits,
+          0
         );
       }
 
@@ -174,7 +170,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
   };
 
   const handleBuy = async () => {
-    if (!publicKey || !wallet) {
+    if (!userAddress || !wallet) {
       setError('Please connect your wallet');
       return;
     }
@@ -189,51 +185,46 @@ export const BuyForm: React.FC<BuyFormProps> = ({
       return;
     }
 
-    const buyAmount = parseFloat(amount);
-    if (isNaN(buyAmount) || buyAmount <= 0) {
+    const buyAmountCredits = parseFloat(amount);
+    if (isNaN(buyAmountCredits) || buyAmountCredits <= 0) {
       setError('Please enter a valid amount');
       return;
     }
 
+    const buyMicrocredits = toMicrocredits(buyAmountCredits);
     setLoading(true);
     setError(null);
 
     try {
-      // Get user's Position record
+      if (!requestRecords) {
+        throw new Error('Wallet does not support record access. Please use a wallet that supports viewing records.');
+      }
+
       const position = await getUserPositionRecords(
         wallet,
         PREDICTION_MARKET_PROGRAM_ID,
-        marketId
+        marketId,
+        requestRecords
       );
 
       if (!position) {
         throw new Error('No position found. Please deposit first.');
       }
 
-      // Fetch the actual Position record object (we need the full record, not just parsed data)
-      const allRecords = await wallet.requestRecords(PREDICTION_MARKET_PROGRAM_ID);
-      const positionRecordObj = allRecords.find((r: any) => {
-        if (r.spent) return false;
-        const recordData = r.data || r;
-        if (recordData.market_id) {
-          const recordMarketId = String(recordData.market_id).replace(/\.private$/, '');
-          return recordMarketId === marketId;
-        }
-        return false;
-      });
-
+      const allRecords = await requestRecords(PREDICTION_MARKET_PROGRAM_ID);
+      const positionRecordObj = findPositionRecordForMarket(allRecords ?? [], marketId);
       if (!positionRecordObj) {
         throw new Error('Position record not found in wallet');
       }
 
-      // Check if user has sufficient available collateral
-      if (position.collateralAvailable < buyAmount) {
-        throw new Error(`Insufficient available collateral. Available: ${position.collateralAvailable}`);
+      if (position.collateralAvailable < buyMicrocredits) {
+        throw new Error(
+          `Insufficient available collateral. Available: ${toCredits(position.collateralAvailable).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits`
+        );
       }
 
-      // Calculate expected output with slippage protection
       const expectedOutput = calculateSwapOutput(
-        buyAmount,
+        buyMicrocredits,
         marketState.yesReserve,
         marketState.noReserve,
         marketState.feeBps,
@@ -245,25 +236,29 @@ export const BuyForm: React.FC<BuyFormProps> = ({
       let txId: string;
       if (side === 'yes') {
         txId = await swapCollateralForYesPrivate(
+          wallet,
+          userAddress,
           marketId,
           positionRecordObj,
-          buyAmount,
+          buyMicrocredits,
           minOutput,
           marketState.yesReserve,
           marketState.noReserve,
           marketState.feeBps,
-          0 // status_hint: 0 = open
+          0
         );
       } else {
         txId = await swapCollateralForNoPrivate(
+          wallet,
+          userAddress,
           marketId,
           positionRecordObj,
-          buyAmount,
+          buyMicrocredits,
           minOutput,
           marketState.yesReserve,
           marketState.noReserve,
           marketState.feeBps,
-          0 // status_hint: 0 = open
+          0
         );
       }
 
@@ -289,11 +284,11 @@ export const BuyForm: React.FC<BuyFormProps> = ({
 
         <div className="form-control mb-4">
           <label className="label">
-            <span className="label-text">Collateral Amount</span>
+            <span className="label-text">Collateral Amount (credits)</span>
           </label>
           <input
             type="number"
-            placeholder="Enter amount"
+            placeholder="Enter amount in credits"
             className="input input-bordered w-full"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
@@ -325,19 +320,24 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           </div>
         </div>
 
-        {estimatedOutput !== null && (
+        {estimatedOutputMicrocredits !== null && (
           <div className="alert alert-info mb-4">
             <span>
-              Estimated {side.toUpperCase()} shares: {estimatedOutput.toLocaleString()}
+              Estimated {side.toUpperCase()} shares: {toCredits(estimatedOutputMicrocredits).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits
             </span>
           </div>
         )}
 
+        {!userAddress && (
+          <div className="alert alert-warning mb-4">
+            <span>Connect your wallet to buy shares or deposit</span>
+          </div>
+        )}
         <div className="flex gap-2">
           <button
             className="btn btn-primary flex-1"
             onClick={handleBuy}
-            disabled={loading || !isOpen || isPaused}
+            disabled={loading || !userAddress || !wallet || !isOpen || isPaused}
           >
             {loading ? (
               <span className="loading loading-spinner"></span>
@@ -348,7 +348,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           <button
             className="btn btn-secondary flex-1"
             onClick={handleDeposit}
-            disabled={loading}
+            disabled={loading || !userAddress || !wallet}
           >
             {loading ? (
               <span className="loading loading-spinner"></span>

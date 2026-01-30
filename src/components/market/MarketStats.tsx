@@ -1,4 +1,5 @@
 import React from 'react';
+import { toCredits } from '@/utils/credits';
 
 interface MarketStatsProps {
   collateralPool: number;
@@ -24,25 +25,25 @@ export const MarketStats: React.FC<MarketStatsProps> = ({
           <div className="stat">
             <div className="stat-title">Collateral Pool</div>
             <div className="stat-value text-primary">
-              {collateralPool.toLocaleString()}
+              {toCredits(collateralPool).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </div>
-            <div className="stat-desc">Total deposited</div>
+            <div className="stat-desc">Initial liquidity + all deposits (credits). Each 1-credit deposit adds 1 to this.</div>
           </div>
 
           <div className="stat">
             <div className="stat-title">YES Reserve</div>
             <div className="stat-value text-success">
-              {yesReserve.toLocaleString()}
+              {toCredits(yesReserve).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </div>
-            <div className="stat-desc">AMM YES tokens</div>
+            <div className="stat-desc">AMM YES tokens (credits)</div>
           </div>
 
           <div className="stat">
             <div className="stat-title">NO Reserve</div>
             <div className="stat-value text-error">
-              {noReserve.toLocaleString()}
+              {toCredits(noReserve).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </div>
-            <div className="stat-desc">AMM NO tokens</div>
+            <div className="stat-desc">AMM NO tokens (credits)</div>
           </div>
 
           <div className="stat">

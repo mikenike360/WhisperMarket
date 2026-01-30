@@ -135,7 +135,7 @@ export default function Layout({
     // Use DaisyUI tokens for the background and text color
     <div className="bg-base-100 text-base-content flex min-h-screen flex-col">
       <Header />
-      <main className="mb-12 flex flex-grow flex-col pt-4 sm:pt-12 bg-primary">
+      <main className="mb-12 flex flex-grow flex-col pt-24 sm:pt-28 bg-primary">
         {children}
       </main>
       <Footer />

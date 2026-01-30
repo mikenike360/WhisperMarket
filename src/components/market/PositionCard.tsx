@@ -1,4 +1,5 @@
 import React from 'react';
+import { toCredits } from '@/utils/credits';
 
 interface PositionCardProps {
   yesShares: number;
@@ -26,31 +27,33 @@ export const PositionCard: React.FC<PositionCardProps> = ({
           <div className="stat">
             <div className="stat-title">YES Shares</div>
             <div className="stat-value text-success">
-              {yesShares.toLocaleString()}
+              {toCredits(yesShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </div>
+            <div className="stat-desc">credits</div>
           </div>
 
           <div className="stat">
             <div className="stat-title">NO Shares</div>
             <div className="stat-value text-error">
-              {noShares.toLocaleString()}
+              {toCredits(noShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </div>
+            <div className="stat-desc">credits</div>
           </div>
 
           <div className="stat">
             <div className="stat-title">Available Collateral</div>
             <div className="stat-value text-primary">
-              {collateralAvailable.toLocaleString()}
+              {toCredits(collateralAvailable).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </div>
-            <div className="stat-desc">For swaps/withdrawals</div>
+            <div className="stat-desc">For swaps/withdrawals (credits)</div>
           </div>
 
           <div className="stat">
             <div className="stat-title">Committed Collateral</div>
             <div className="stat-value text-secondary">
-              {collateralCommitted.toLocaleString()}
+              {toCredits(collateralCommitted).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </div>
-            <div className="stat-desc">Backing shares</div>
+            <div className="stat-desc">Backing shares (credits)</div>
           </div>
         </div>
 

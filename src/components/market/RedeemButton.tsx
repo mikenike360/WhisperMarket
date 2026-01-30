@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { WalletNotConnectedError } from '@provablehq/aleo-wallet-adaptor-core';
 import { redeemPrivate } from '@/components/aleo/rpc';
+import { toCredits } from '@/utils/credits';
 
 interface RedeemButtonProps {
   marketId: string;
@@ -26,7 +27,7 @@ export const RedeemButton: React.FC<RedeemButtonProps> = ({
   estimatedPayout,
   onRedeemed,
 }) => {
-  const { publicKey } = useWallet();
+  const { publicKey, wallet } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +36,7 @@ export const RedeemButton: React.FC<RedeemButtonProps> = ({
     (outcome === false && userNoShares > 0);
 
   const handleRedeem = async () => {
-    if (!publicKey) {
+    if (!publicKey || !wallet) {
       setError('Please connect your wallet');
       return;
     }
@@ -69,7 +70,7 @@ export const RedeemButton: React.FC<RedeemButtonProps> = ({
     setError(null);
 
     try {
-      const txId = await redeemPrivate(marketId, positionRecord, outcome);
+      const txId = await redeemPrivate(wallet, publicKey, marketId, positionRecord, outcome);
       onRedeemed?.();
       alert(`Redeem transaction submitted: ${txId}`);
     } catch (err: any) {
@@ -119,7 +120,7 @@ export const RedeemButton: React.FC<RedeemButtonProps> = ({
 
         {estimatedPayout !== undefined && (
           <div className="alert alert-info mb-4">
-            <span>Estimated payout: {estimatedPayout.toLocaleString()} credits</span>
+            <span>Estimated payout: {toCredits(estimatedPayout).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits</span>
           </div>
         )}
 

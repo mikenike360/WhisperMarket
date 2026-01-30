@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
-import { initMarket } from '@/components/aleo/rpc';
+import { initMarket, getTotalMarketsCount, getMarketIdAtIndex, fetchMarketCreator, clearMarketRegistryCache } from '@/components/aleo/rpc';
+import { filterUnspentRecords } from '@/components/aleo/wallet/records';
 import { getFeeForFunction } from '@/utils/feeCalculator';
+import { createMarketMetadata, getMarketMetadata } from '@/services/marketMetadata';
 
 // Constants from the Leo program
 // Note: MIN_LIQUIDITY in Leo is 1000 microcredits = 0.001 credits
@@ -20,19 +22,18 @@ interface CreateMarketFormProps {
 
 /**
  * Simple metadata hash generation - creates a field value from title and description
- * For MVP, we'll use a simple hash. In production, this could be more sophisticated.
+ * Includes timestamp to ensure uniqueness and prevent market ID collisions
  */
 function generateMetadataHash(title: string, description: string): string {
-  // Simple approach: combine title and description, hash to a field value
-  // For now, we'll use a placeholder that can be improved later
-  // Using 0field as placeholder - in production, you'd want to hash the actual metadata
-  if (!title && !description) {
-    return '0field';
-  }
+  // Include timestamp to ensure uniqueness even if title/description are the same
+  // This helps prevent market ID collisions from failed transactions
+  const timestamp = Date.now();
+  
+  // Combine title, description, and timestamp
+  const combined = `${title}:${description}:${timestamp}`;
   
   // Simple hash: convert string to a number and use as field
   // This is a basic implementation - in production, use proper cryptographic hashing
-  const combined = `${title}:${description}`;
   let hash = 0;
   for (let i = 0; i < combined.length; i++) {
     const char = combined.charCodeAt(i);
@@ -40,9 +41,21 @@ function generateMetadataHash(title: string, description: string): string {
     hash = hash & hash; // Convert to 32-bit integer
   }
   
-  // Use absolute value and convert to field format
+  // Use absolute value and return as string (rpc.ts will add the 'field' suffix)
   // Note: This is a simplified approach. In production, use proper field hashing
-  return `${Math.abs(hash)}field`;
+  return `${Math.abs(hash)}`;
+}
+
+/**
+ * Generate a random salt for market_id = hash(creator || metadata_hash || salt).
+ * Uses crypto.getRandomValues; rpc.ts formats as field.
+ */
+function generateSalt(): string {
+  const arr = new Uint8Array(8);
+  crypto.getRandomValues(arr);
+  let n = BigInt(0);
+  for (let i = 0; i < 8; i++) n = (n << BigInt(8)) | BigInt(arr[i]);
+  return n.toString();
 }
 
 export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
@@ -50,10 +63,9 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
   onCancel,
 }) => {
   const walletHook = useWallet();
-  const { publicKey, wallet, address, connected } = walletHook;
+  const { publicKey, wallet, address, connected, requestRecords } = walletHook;
   const [initialLiquidity, setInitialLiquidity] = useState<string>('');
-  // Bond amount is hardcoded to 1 credit
-  const BOND_AMOUNT_CREDITS = 1;
+  const [bondAmount, setBondAmount] = useState<string>('1'); // Default 1 credit, selectable 1-10
   const [feeBps, setFeeBps] = useState<string>('30'); // Default 0.3%
   const [title, setTitle] = useState<string>('');
   const [description, setDescription] = useState<string>('');
@@ -64,11 +76,15 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
 
   const validateInputs = (): string | null => {
     const liquidity = parseFloat(initialLiquidity);
-    const bond = BOND_AMOUNT_CREDITS; // Hardcoded to 1 credit
+    const bond = parseFloat(bondAmount);
     const fee = parseFloat(feeBps);
 
     if (isNaN(liquidity) || liquidity < MIN_LIQUIDITY_CREDITS) {
       return `Initial liquidity must be at least ${MIN_LIQUIDITY_CREDITS} credits (${MIN_LIQUIDITY_MICROCREDITS} microcredits)`;
+    }
+
+    if (isNaN(bond) || bond < 1 || bond > 10) {
+      return `Bond amount must be between 1 and 10 credits`;
     }
 
     if (isNaN(fee) || fee < 0 || fee > MAX_FEE_BPS) {
@@ -115,214 +131,153 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
 
     try {
       const liquidity = parseFloat(initialLiquidity);
-      const bond = BOND_AMOUNT_CREDITS; // Hardcoded to 1 credit
+      const bond = parseFloat(bondAmount);
       const fee = parseFloat(feeBps);
 
-      // Generate metadata hash
+      // Generate metadata hash and salt for market_id = hash(creator || metadata_hash || salt)
       const metadataHash = generateMetadataHash(title, description);
+      const salt = generateSalt();
       
       // Calculate total needed for balance check (bond + liquidity + estimated fee)
+      // Note: We need TWO distinct records - one for the transaction and one for the fee
       const estimatedFee = getFeeForFunction('init') / CREDITS_TO_MICROCREDITS; // Convert to credits
       const totalNeeded = bond + liquidity + estimatedFee;
       
-      // Fetch credit records to validate balance and pass to executeTransition
-      // executeTransition RPC will handle wallet interaction and record decryption automatically
-      let creditRecord: any = null;
-      
-      // Determine which wallet object has requestRecords and call it directly to preserve context
-      let walletWithRecords: any = null;
-      
-      if (wallet) {
-        // Try direct access first (works for Leo wallet)
-        if (typeof wallet.requestRecords === 'function') {
-          walletWithRecords = wallet;
-        }
-        // Try nested access (some wallet adapters wrap the actual adapter)
-        else if (wallet.wallet && typeof wallet.wallet.requestRecords === 'function') {
-          walletWithRecords = wallet.wallet;
-        }
-        else if (wallet.adapter && typeof wallet.adapter.requestRecords === 'function') {
-          walletWithRecords = wallet.adapter;
-        }
-      }
-      
-      if (walletWithRecords) {
-        try {
-          // Call requestRecords directly on the wallet object to preserve 'this' context
-          // This should automatically prompt for decryption with DecryptPermission.UponRequest
-          const allRecords = await walletWithRecords.requestRecords('credits.aleo');
-          console.log('All records fetched:', JSON.stringify(allRecords, null, 2));
-          console.log('First record structure:', allRecords?.[0]);
-          
-          if (allRecords && allRecords.length > 0) {
-            // Extract value from microcredits string - handles different formats
-            const extractValue = (record: any): number => {
-              // Try different record structures
-              // Records might be: { data: { microcredits: "..." }, spent: false }
-              // Or: { microcredits: "...", spent: false }
-              // Or: string (encrypted record)
-              // Or: { data: "..." } where data is a string
-              
-              let microcreditsStr = '';
-              
-              // If record is a string, it might be an encrypted record
-              if (typeof record === 'string') {
-                console.warn('Record is a string (possibly encrypted):', record.substring(0, 100));
-                return 0; // Can't extract value from encrypted string
-              }
-              
-              // Try nested data structure
-              if (record.data) {
-                if (typeof record.data === 'object' && record.data.microcredits) {
-                  microcreditsStr = record.data.microcredits;
-                } else if (typeof record.data === 'string') {
-                  // Data might be a string representation
-                  const match = record.data.match(/microcredits["\s:]+([0-9]+)/);
-                  if (match) {
-                    microcreditsStr = match[1] + 'u64';
-                  }
-                }
-              }
-              
-              // Try direct microcredits property
-              if (!microcreditsStr && record.microcredits) {
-                microcreditsStr = record.microcredits;
-              }
-              
-              if (!microcreditsStr) {
-                console.warn('Record missing microcredits:', record);
-                return 0;
-              }
-              
-              // Extract numeric value (handles formats like "5000000u64.private", "5000000u64", etc.)
-              const match = String(microcreditsStr).match(/^(\d+)/);
-              return match ? parseInt(match[1], 10) : 0;
-            };
-
-            // Filter unspent records - handle different record structures
-            const unspentRecords = allRecords.filter((record: any) => {
-              // Skip if record is a string (encrypted, needs decryption)
-              if (typeof record === 'string') {
-                console.warn('Skipping encrypted string record');
-                return false;
-              }
-              
-              // Check if record is spent
-              if (record.spent === true) {
-                return false;
-              }
-              
-              // Check if record has microcredits (try different structures)
-              const hasMicrocredits = 
-                (record.data && typeof record.data === 'object' && record.data.microcredits) || 
-                (record.data && typeof record.data === 'string' && record.data.includes('microcredits')) ||
-                record.microcredits;
-              
-              if (!hasMicrocredits) {
-                console.warn('Record missing microcredits field. Record:', record);
-                return false;
-              }
-              
-              // Extract value to ensure it's valid
-              const value = extractValue(record);
-              if (value <= 0) {
-                console.warn('Record has invalid or zero value:', record);
-              }
-              return value > 0;
-            });
-
-            console.log(`Found ${unspentRecords.length} unspent records out of ${allRecords.length} total records`);
-            if (unspentRecords.length > 0) {
-              console.log('Sample unspent record:', unspentRecords[0]);
-            }
-
-            if (unspentRecords.length > 0) {
-              const totalNeededMicrocredits = totalNeeded * CREDITS_TO_MICROCREDITS;
-              
-              // Find a record that can cover the total amount needed (for balance validation)
-              creditRecord = unspentRecords.find((record: any) => {
-                const recordValue = extractValue(record);
-                return recordValue >= totalNeededMicrocredits;
-              });
-
-              if (!creditRecord) {
-                const maxAvailable = Math.max(
-                  ...unspentRecords.map((r: any) => extractValue(r))
-                );
-                throw new Error(
-                  `Insufficient balance. Need ${totalNeeded.toFixed(6)} credits (${totalNeededMicrocredits} microcredits), ` +
-                  `but largest available record is ${(maxAvailable / CREDITS_TO_MICROCREDITS).toFixed(6)} credits`
-                );
-              }
-            } else {
-              // Log all records for debugging
-              console.error('No unspent records found. All records:', allRecords);
-              throw new Error('No unspent credit records available in wallet');
-            }
-          } else {
-            throw new Error('No credit records found in wallet');
-          }
-        } catch (err: any) {
-          // If requestRecords fails or returns no records, provide helpful error message
-          if (err.message.includes('Insufficient balance') || err.message.includes('No')) {
-            throw err; // Re-throw balance/availability errors
-          }
-          // For other errors, log and throw
-          console.error('Error fetching credit records:', err);
-          throw new Error(`Failed to fetch credit records: ${err.message}`);
-        }
-      } else {
-        // Wallet adapter doesn't expose requestRecords - executeTransition might handle it
-        // but we still need to pass a record, so throw an error
+      if (!requestRecords || !connected) {
         throw new Error(
-          'Wallet adapter does not expose requestRecords method. ' +
-          'Please use a wallet that supports record access, or ensure your wallet is properly connected.'
+          'requestRecords not available. Please ensure your wallet is connected and supports record access.'
         );
       }
 
-      // Create and submit transaction using RPC executeTransition
-      // Convert credits to microcredits for the Leo program
+      const allRecords = await requestRecords('credits.aleo', false);
+      if (!allRecords || allRecords.length === 0) {
+        throw new Error('No credit records found in wallet');
+      }
+
+      const unspentRecords = filterUnspentRecords(allRecords);
+      if (unspentRecords.length === 0) {
+        throw new Error('No unspent credit records available in wallet');
+      }
+
+      const totalNeededMicrocredits = totalNeeded * CREDITS_TO_MICROCREDITS;
+      const totalBalance = unspentRecords.reduce((sum, r) => sum + r.value, 0);
+      if (totalBalance > 0 && totalBalance < totalNeededMicrocredits) {
+        throw new Error(
+          `Insufficient balance. Need ${totalNeeded.toFixed(6)} credits (${totalNeededMicrocredits} microcredits), ` +
+          `but only have ${(totalBalance / CREDITS_TO_MICROCREDITS).toFixed(6)} credits total.`
+        );
+      }
+
       const liquidityMicrocredits = liquidity * CREDITS_TO_MICROCREDITS;
       const bondMicrocredits = bond * CREDITS_TO_MICROCREDITS;
-      
-      // Credit record is required for executeTransition
-      // If we couldn't fetch it (wallet doesn't expose requestRecords), 
-      // we need to let the user know or handle it differently
-      if (!creditRecord) {
-        throw new Error(
-          'Unable to access credit records. Please ensure your wallet is connected and has credit records available. ' +
-          'The executeTransition RPC will prompt your wallet for signing when creating the market.'
-        );
-      }
 
-      // Use initMarket which uses executeTransition RPC
-      // executeTransition will automatically work with the wallet adapter for signing
       const transactionId = await initMarket(
+        wallet,
+        userPublicKey,
         liquidityMicrocredits,
         bondMicrocredits,
         fee,
         metadataHash,
-        creditRecord // Credit record object - executeTransition will handle wallet interaction
+        salt,
+        undefined,
+        requestRecords
       );
 
       setTxId(transactionId);
       setSuccess(true);
-      
-      // Call onSuccess callback after a short delay
+
+      // Store metadata temporarily in localStorage so we can save it when we find the market
+      // This prevents race conditions where markets are discovered before metadata is saved
+      if (transactionId && typeof window !== 'undefined') {
+        try {
+          const pendingMetadata = {
+            transactionId,
+            title: title || '',
+            description: description || '',
+            category: 'General',
+            creatorAddress: String(userPublicKey),
+            metadataHash,
+            timestamp: Date.now(),
+          };
+          const pendingKey = `pending_market_metadata_${transactionId}`;
+          localStorage.setItem(pendingKey, JSON.stringify(pendingMetadata));
+        } catch {
+          // Ignore localStorage errors
+        }
+      }
+
+      // Poll total_markets mapping; when count increases, new market is at (count - 1), save metadata
+      if (transactionId) {
+        const pollAndSaveMetadata = async () => {
+          const POLL_INTERVAL_MS = 4000;
+          const MAX_POLLS = 60; // ~4 minutes max
+          
+          try {
+            const initialCount = await getTotalMarketsCount();
+            
+            for (let poll = 0; poll < MAX_POLLS; poll++) {
+              await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+              const newCount = await getTotalMarketsCount();
+              
+              if (newCount > initialCount) {
+                const newIndex = newCount - 1;
+                const marketId = await getMarketIdAtIndex(newIndex);
+                
+                if (marketId) {
+                  clearMarketRegistryCache();
+                  
+                  let creator: string | null = null;
+                  try {
+                    creator = await fetchMarketCreator(marketId);
+                  } catch {
+                    // Ignore; we'll use userPublicKey
+                  }
+                  
+                  const existing = await getMarketMetadata(marketId);
+                  const saved = await createMarketMetadata({
+                    market_id: marketId,
+                    title: title || `Market ${marketId.slice(0, 8)}...`,
+                    description: description || 'Prediction market',
+                    category: 'General',
+                    creator_address: creator ?? String(userPublicKey),
+                    transaction_id: transactionId,
+                    metadata_hash: metadataHash,
+                  });
+                  
+                  if (typeof window !== 'undefined') {
+                    try {
+                      localStorage.removeItem(`pending_market_metadata_${transactionId}`);
+                    } catch (err) {
+                      /* ignore */
+                    }
+                  }
+                  return;
+                }
+              }
+            }
+            
+          } catch {
+            // Polling/save failed; market will appear with defaults on refresh
+          }
+        };
+        
+        setTimeout(() => pollAndSaveMetadata(), 3000);
+      }
+
+      // Call onSuccess to close modal, but don't auto-refresh markets
       if (onSuccess) {
-        setTimeout(() => {
-          onSuccess();
-        }, 2000);
+        onSuccess();
       }
     } catch (err: any) {
-      console.error('Failed to create market:', err);
-      setError(err.message || 'Failed to create market. Please try again.');
+      setError(err?.message || 'Failed to create market. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   if (success) {
+    const explorerUrl = txId ? `https://testnet.explorer.provable.com/transaction/${txId}` : null;
+    
     return (
       <div className="card bg-base-100 shadow-xl">
         <div className="card-body">
@@ -340,13 +295,41 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
                 d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <div>
-              <h3 className="font-bold">Market Creation Submitted!</h3>
-              <div className="text-xs">
-                Transaction ID: {txId}
-                <br />
-                The market will appear in the list once the transaction is finalized.
-              </div>
+            <div className="w-full">
+              <h3 className="font-bold text-lg mb-2">✅ Market Creation Submitted!</h3>
+              {txId && (
+                <div className="space-y-2">
+                  <div className="bg-base-200 p-3 rounded-lg">
+                    <div className="text-xs font-semibold text-base-content/70 mb-1">Transaction ID:</div>
+                    <div className="font-mono text-sm break-all">{txId}</div>
+                  </div>
+                  {explorerUrl && (
+                    <a
+                      href={explorerUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-sm btn-outline btn-primary w-full"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      View on Explorer
+                    </a>
+                  )}
+                  <div className="text-xs text-base-content/60 mt-2 space-y-1">
+                    <div>⏳ The market will appear in the list once the transaction is finalized and indexed.</div>
+                    <div className="text-info mt-2 p-2 bg-info/10 rounded">
+                      <div className="font-semibold mb-1">💡 Next Steps:</div>
+                      <ul className="list-disc list-inside space-y-1 ml-2">
+                        <li>Wait a few seconds for the transaction to be indexed</li>
+                        <li>Click the refresh button (↻) on the markets page to reload</li>
+                        <li>The market will auto-refresh every 30 seconds</li>
+                        <li>If it doesn't appear after 1-2 minutes, check the explorer link above</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           {onCancel && (
@@ -395,18 +378,23 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
         <div className="form-control mb-4">
           <label className="label">
             <span className="label-text">Bond Amount (credits)</span>
-            <span className="label-text-alt">Fixed: {BOND_AMOUNT_CREDITS} credit</span>
+            <span className="label-text-alt">Select: 1-10 credits</span>
           </label>
-          <input
-            type="number"
-            className="input input-bordered w-full input-disabled bg-base-200"
-            value={BOND_AMOUNT_CREDITS}
-            disabled={true}
-            readOnly
-          />
+          <select
+            className="select select-bordered w-full"
+            value={bondAmount}
+            onChange={(e) => setBondAmount(e.target.value)}
+            disabled={loading}
+          >
+            {Array.from({ length: 10 }, (_, i) => i + 1).map((value) => (
+              <option key={value} value={value.toString()}>
+                {value} credit{value !== 1 ? 's' : ''}
+              </option>
+            ))}
+          </select>
           <label className="label">
             <span className="label-text-alt">
-              Non-redeemable bond paid when creating the market (fixed at {BOND_AMOUNT_CREDITS} credit)
+              Non-redeemable bond paid when creating the market
             </span>
           </label>
         </div>

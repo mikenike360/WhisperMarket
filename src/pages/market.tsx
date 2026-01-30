@@ -11,11 +11,13 @@ import { MarketStats } from '@/components/market/MarketStats';
 import { StatusBanner } from '@/components/market/StatusBanner';
 import { getMarketState } from '@/components/aleo/rpc';
 import { PREDICTION_MARKET_PROGRAM_ID } from '@/types';
+import { getMarketMetadata } from '@/services/marketMetadata';
 
 const MarketPage: NextPageWithLayout = () => {
   const router = useRouter();
   const { publicKey } = useWallet();
   const [marketState, setMarketState] = useState<any>(null);
+  const [metadata, setMetadata] = useState<{ title: string; description: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [transactionId, setTransactionId] = useState<string | null>(null);
@@ -43,11 +45,15 @@ const MarketPage: NextPageWithLayout = () => {
 
   const loadMarketState = async () => {
     if (!marketId) return;
-    
+
     try {
       setLoading(true);
-      const state = await getMarketState(marketId);
+      const [state, meta] = await Promise.all([
+        getMarketState(marketId),
+        getMarketMetadata(marketId),
+      ]);
       setMarketState(state);
+      setMetadata(meta ? { title: meta.title, description: meta.description } : null);
       setError(null);
     } catch (err: any) {
       // Check if it's a "program not deployed" error
@@ -150,12 +156,14 @@ const MarketPage: NextPageWithLayout = () => {
   }
 
   const priceNo = 10000 - marketState.priceYes;
+  const displayTitle = metadata?.title ?? 'Prediction Market';
+  const displayDescription = metadata?.description ?? 'Place your bets on whether this event will occur. Buy YES if you think it will happen, or NO if you think it won\'t.';
 
   return (
     <>
       <NextSeo
-        title="Prediction Market"
-        description="Trade on binary prediction market outcomes"
+        title={displayTitle}
+        description={displayDescription}
       />
 
       <div className="container mx-auto px-4 py-8">
@@ -166,8 +174,8 @@ const MarketPage: NextPageWithLayout = () => {
         )}
 
         <MarketHeader
-          title="Will this event happen?"
-          description="Place your bets on whether this event will occur. Buy YES if you think it will happen, or NO if you think it won't."
+          title={displayTitle}
+          description={displayDescription}
           status={marketState.status}
         />
 

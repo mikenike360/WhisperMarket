@@ -2,295 +2,436 @@ import React, { useState, useEffect } from 'react';
 import type { NextPageWithLayout } from '@/types';
 import { NextSeo } from 'next-seo';
 import Layout from '@/layouts/_layout';
-import { useRouter } from 'next/router';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
-import { WalletNotConnectedError } from '@provablehq/aleo-wallet-adaptor-core';
 import {
   getMarketState,
   resolveMarket,
   pause,
   unpause,
+  getAllMarkets,
+  type MarketRegistryEntry,
 } from '@/components/aleo/rpc';
-import { PREDICTION_MARKET_PROGRAM_ID } from '@/types';
-
-// Admin address from the program: aleo17hqgrmy5nk5s7adxhckhsk0k23r7e343ddcnnx49r59lx64thq9q302526
-const ADMIN_ADDRESS = 'aleo17hqgrmy5nk5s7adxhckhsk0k23r7e343ddcnnx49r59lx64thq9q302526';
+import { MarketState, MarketMetadata } from '@/types';
+import { AdminMarketCard } from '@/components/admin/AdminMarketCard';
+import {
+  isAdminAddress,
+  getAdminSignInMessage,
+  hasValidAdminSignIn,
+  setAdminSignedIn,
+  clearAdminSignedIn,
+} from '@/config/admin';
+import { getMarketsMetadata } from '@/services/marketMetadata';
 
 const AdminPage: NextPageWithLayout = () => {
-  const router = useRouter();
-  const { publicKey } = useWallet();
-  const [marketState, setMarketState] = useState<any>(null);
+  const walletHook = useWallet();
+  const { publicKey, wallet, address, signMessage } = walletHook as any;
+  const [markets, setMarkets] = useState<MarketRegistryEntry[]>([]);
+  const [marketStates, setMarketStates] = useState<Record<string, MarketState>>({});
+  const [marketMetadata, setMarketMetadata] = useState<Record<string, MarketMetadata>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [outcome, setOutcome] = useState<boolean>(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [adminSignedIn, setAdminSignedInState] = useState(false);
+  const [signInLoading, setSignInLoading] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
 
-  // Get market ID from query parameter
-  // Usage: /admin?marketId=0field or /admin?marketId=1field
-  const marketId = (router.query.marketId as string) || null;
+  const userAddress = publicKey || address;
+  const isAdminAddressMatch = isAdminAddress(userAddress);
 
-  const isAdmin = publicKey?.toString() === ADMIN_ADDRESS;
-
+  // Restore admin sign-in from session on mount
   useEffect(() => {
-    if (!marketId) {
+    if (userAddress && hasValidAdminSignIn(userAddress)) {
+      setAdminSignedInState(true);
+    } else {
+      setAdminSignedInState(false);
+    }
+  }, [userAddress]);
+
+  const isAdmin = isAdminAddressMatch && adminSignedIn;
+
+  // Load markets and their states
+  const loadMarkets = async () => {
+    if (!isAdmin) {
       setLoading(false);
-      setError('MARKET_ID_REQUIRED');
       return;
     }
 
-    if (publicKey && isAdmin) {
-      loadMarketState();
-      // Poll for updates every 5 seconds
-      const interval = setInterval(loadMarketState, 5000);
-      return () => clearInterval(interval);
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Fetch all markets from registry
+      const allMarkets = await getAllMarkets();
+      setMarkets(allMarkets);
+
+      // Fetch metadata for all markets
+      const marketIds = allMarkets.map(m => m.marketId);
+      const metadataMap = await getMarketsMetadata(marketIds);
+      // Convert Omit<MarketMetadata, "marketId"> to MarketMetadata by adding marketId
+      const fullMetadataMap: Record<string, MarketMetadata> = {};
+      Object.entries(metadataMap).forEach(([marketId, metadata]) => {
+        fullMetadataMap[marketId] = { ...metadata, marketId };
+      });
+      setMarketMetadata(fullMetadataMap);
+
+      // Fetch state for each market in parallel
+      const statePromises = allMarkets.map(async (market) => {
+        try {
+          const state = await getMarketState(market.marketId);
+          return { marketId: market.marketId, state };
+        } catch (err: any) {
+          if (process.env.NODE_ENV === 'development') {
+          }
+          return { marketId: market.marketId, state: null };
+        }
+      });
+
+      const stateResults = await Promise.all(statePromises);
+      const statesMap: Record<string, MarketState> = {};
+      stateResults.forEach(({ marketId, state }) => {
+        if (state) {
+          statesMap[marketId] = state;
+        }
+      });
+      setMarketStates(statesMap);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load markets');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    if (isAdmin) {
+      loadMarkets();
     } else {
       setLoading(false);
     }
-  }, [publicKey, isAdmin, marketId]);
+  }, [isAdmin]);
 
-  const loadMarketState = async () => {
-    if (!marketId) return;
-    
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    const interval = setInterval(() => {
+      loadMarkets();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [isAdmin]);
+
+  const refreshMarket = async (marketId: string) => {
     try {
-      setLoading(true);
       const state = await getMarketState(marketId);
-      setMarketState(state);
-      setError(null);
+      setMarketStates((prev) => ({
+        ...prev,
+        [marketId]: state,
+      }));
     } catch (err: any) {
-      setError(err.message || 'Failed to load market state');
-    } finally {
-      setLoading(false);
+      if (process.env.NODE_ENV === 'development') {
+      }
     }
   };
 
-  const handleResolve = async () => {
-    if (!publicKey) {
+  const handleResolve = async (marketId: string, outcome: boolean) => {
+    // Check if wallet is connected - some wallets use 'address' instead of 'publicKey'
+    const userPublicKey = publicKey || address;
+    if (!userPublicKey || !wallet) {
       setError('Please connect your wallet');
       return;
     }
 
-    if (!confirm(`Are you sure you want to resolve the market as ${outcome ? 'YES' : 'NO'}?`)) {
+    if (!confirm(`Are you sure you want to resolve market ${marketId.slice(0, 8)}... as ${outcome ? 'YES' : 'NO'}?`)) {
       return;
     }
 
-    setActionLoading(true);
+    setActionLoading((prev) => ({ ...prev, [marketId]: true }));
     setError(null);
+    setSuccessMessage(null);
 
     try {
-      const txId = await resolveMarket(marketId, outcome);
-      alert(`Resolution transaction submitted: ${txId}`);
-      setTimeout(loadMarketState, 2000);
+      const txId = await resolveMarket(wallet, userPublicKey, marketId, outcome);
+      setSuccessMessage(`Market resolved! Transaction ID: ${txId}`);
+      
+      // Wait a bit then refresh market state
+      setTimeout(() => {
+        refreshMarket(marketId);
+      }, 2000);
     } catch (err: any) {
       setError(err.message || 'Failed to resolve market');
+      throw err; // Re-throw so AdminMarketCard can handle it
     } finally {
-      setActionLoading(false);
+      setActionLoading((prev) => ({ ...prev, [marketId]: false }));
     }
   };
 
-  const handlePause = async () => {
-    if (!publicKey) {
+  const handlePause = async (marketId: string) => {
+    // Check if wallet is connected - some wallets use 'address' instead of 'publicKey'
+    const userPublicKey = publicKey || address;
+    if (!userPublicKey || !wallet) {
       setError('Please connect your wallet');
       return;
     }
 
-    setActionLoading(true);
+    if (!confirm(`Are you sure you want to pause market ${marketId.slice(0, 8)}...?`)) {
+      return;
+    }
+
+    setActionLoading((prev) => ({ ...prev, [marketId]: true }));
     setError(null);
+    setSuccessMessage(null);
 
     try {
-      const txId = await pause(marketId);
-      alert(`Pause transaction submitted: ${txId}`);
-      setTimeout(loadMarketState, 2000);
+      const txId = await pause(wallet, userPublicKey, marketId);
+      setSuccessMessage(`Market paused! Transaction ID: ${txId}`);
+      
+      // Wait a bit then refresh market state
+      setTimeout(() => {
+        refreshMarket(marketId);
+      }, 2000);
     } catch (err: any) {
       setError(err.message || 'Failed to pause market');
+      throw err; // Re-throw so AdminMarketCard can handle it
     } finally {
-      setActionLoading(false);
+      setActionLoading((prev) => ({ ...prev, [marketId]: false }));
     }
   };
 
-  const handleUnpause = async () => {
-    if (!publicKey) {
+  const handleUnpause = async (marketId: string) => {
+    // Check if wallet is connected - some wallets use 'address' instead of 'publicKey'
+    const userPublicKey = publicKey || address;
+    if (!userPublicKey || !wallet) {
       setError('Please connect your wallet');
       return;
     }
 
-    setActionLoading(true);
+    if (!confirm(`Are you sure you want to unpause market ${marketId.slice(0, 8)}...?`)) {
+      return;
+    }
+
+    setActionLoading((prev) => ({ ...prev, [marketId]: true }));
     setError(null);
+    setSuccessMessage(null);
 
     try {
-      const txId = await unpause(marketId);
-      alert(`Unpause transaction submitted: ${txId}`);
-      setTimeout(loadMarketState, 2000);
+      const txId = await unpause(wallet, userPublicKey, marketId);
+      setSuccessMessage(`Market unpaused! Transaction ID: ${txId}`);
+      
+      // Wait a bit then refresh market state
+      setTimeout(() => {
+        refreshMarket(marketId);
+      }, 2000);
     } catch (err: any) {
       setError(err.message || 'Failed to unpause market');
+      throw err; // Re-throw so AdminMarketCard can handle it
     } finally {
-      setActionLoading(false);
+      setActionLoading((prev) => ({ ...prev, [marketId]: false }));
     }
   };
 
-  if (!publicKey) {
+  const handleAdminSignIn = async () => {
+    if (!userAddress || !signMessage || typeof signMessage !== 'function') {
+      setSignInError('Wallet does not support signing messages');
+      return;
+    }
+    setSignInLoading(true);
+    setSignInError(null);
+    try {
+      const message = getAdminSignInMessage();
+      await signMessage(message);
+      setAdminSignedIn(userAddress);
+      setAdminSignedInState(true);
+    } catch (err: any) {
+      setSignInError(err?.message || 'Failed to sign message');
+    } finally {
+      setSignInLoading(false);
+    }
+  };
+
+  const handleAdminSignOut = () => {
+    clearAdminSignedIn(userAddress ?? undefined);
+    setAdminSignedInState(false);
+  };
+
+  // Access control checks
+  if (!userAddress) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="alert alert-warning">
-          <span>Please connect your wallet</span>
+          <span>Please connect your wallet to access the admin panel</span>
         </div>
       </div>
     );
   }
 
-  if (!marketId) {
+  if (!isAdminAddressMatch) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <div className="card bg-base-200 shadow-xl max-w-2xl mx-auto">
-          <div className="card-body">
-            <h2 className="card-title text-warning">Market ID Required</h2>
-            <p className="text-base-content/80">
-              Please specify a market ID in the URL query parameter.
-            </p>
-            <div className="divider">Usage</div>
-            <p className="text-sm">
-              Add <code className="badge badge-ghost">?marketId=YOUR_MARKET_ID</code> to the URL.
-              <br />
-              Example: <code className="badge badge-ghost">/admin?marketId=0field</code>
-            </p>
+        <div className="alert alert-error">
+          <span>Access denied. This page is only accessible to the admin wallet.</span>
+          <div className="text-sm mt-2">
+            Connected: {String(userAddress).slice(0, 20)}...
           </div>
         </div>
       </div>
     );
   }
 
-  if (!isAdmin) {
+  // Admin address connected but not yet signed in
+  if (!adminSignedIn) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <div className="alert alert-error">
-          <span>Access denied. This page is only accessible to the admin.</span>
+        <NextSeo title="Admin Sign In" description="Sign in to the admin panel" />
+        <div className="max-w-md mx-auto">
+          <div className="card bg-base-100 shadow-xl">
+            <div className="card-body">
+              <h1 className="card-title text-2xl">Admin Sign In</h1>
+              <p className="text-base-content/70">
+                Sign a message with your wallet to prove you control the admin address and access the admin panel.
+              </p>
+              <p className="text-sm text-base-content/60">
+                Connected: <code className="text-xs">{String(userAddress).slice(0, 24)}...</code>
+              </p>
+              {signInError && (
+                <div className="alert alert-error">
+                  <span>{signInError}</span>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSignInError(null)}>✕</button>
+                </div>
+              )}
+              <div className="card-actions justify-end mt-4">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleAdminSignIn}
+                  disabled={signInLoading}
+                >
+                  {signInLoading ? (
+                    <>
+                      <span className="loading loading-spinner loading-sm" />
+                      Signing...
+                    </>
+                  ) : (
+                    'Sign in to Admin'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
-
-  if (loading && !marketState) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-center items-center min-h-[400px]">
-          <span className="loading loading-spinner loading-lg"></span>
-        </div>
-      </div>
-    );
-  }
-
-  const currentPricePercent = marketState ? (marketState.priceYes / 100).toFixed(2) : '0';
 
   return (
     <>
-      <NextSeo title="Admin Panel" description="Manage prediction market settings" />
+      <NextSeo title="Admin Dashboard" description="Manage prediction markets" />
 
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-4xl font-bold mb-8">Admin Panel</h1>
+        <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+          <div>
+            <h1 className="text-4xl font-bold mb-2">Admin Dashboard</h1>
+            <p className="text-base-content/70">
+              Connected as: <code className="text-xs">{String(userAddress).slice(0, 30)}...</code>
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={handleAdminSignOut}
+              title="Sign out from admin (you will need to sign again to access)"
+            >
+              Sign out from admin
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={loadMarkets}
+              disabled={loading}
+            >
+            {loading ? (
+              <>
+                <span className="loading loading-spinner"></span>
+                Loading...
+              </>
+            ) : (
+              <>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                Refresh
+              </>
+            )}
+          </button>
+          </div>
+        </div>
 
         {error && (
           <div className="alert alert-error mb-6">
             <span>{error}</span>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => setError(null)}
+            >
+              ✕
+            </button>
           </div>
         )}
 
-        {marketState && (
-          <div className="card bg-base-100 shadow-xl mb-6">
-            <div className="card-body">
-              <h2 className="card-title mb-4">Current Market State</h2>
-              <div className="stats stats-vertical lg:stats-horizontal shadow w-full">
-                <div className="stat">
-                  <div className="stat-title">Status</div>
-                  <div className="stat-value">
-                    {marketState.status === 0
-                      ? 'Open'
-                      : marketState.status === 1
-                      ? 'Resolved'
-                      : 'Paused'}
-                  </div>
-                </div>
-                <div className="stat">
-                  <div className="stat-title">YES Price</div>
-                  <div className="stat-value">{currentPricePercent}%</div>
-                </div>
-                <div className="stat">
-                  <div className="stat-title">Outcome</div>
-                  <div className="stat-value">
-                    {marketState.outcome === null
-                      ? 'Pending'
-                      : marketState.outcome
-                      ? 'YES'
-                      : 'NO'}
-                  </div>
-                </div>
-              </div>
-            </div>
+        {successMessage && (
+          <div className="alert alert-success mb-6">
+            <span>{successMessage}</span>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => setSuccessMessage(null)}
+            >
+              ✕
+            </button>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Resolve Market */}
-          <div className="card bg-base-100 shadow-xl">
-            <div className="card-body">
-              <h3 className="card-title mb-4">Resolve Market</h3>
-              <div className="form-control mb-4">
-                <label className="label">
-                  <span className="label-text">Outcome</span>
-                </label>
-                <select
-                  className="select select-bordered w-full"
-                  value={outcome ? 'true' : 'false'}
-                  onChange={(e) => setOutcome(e.target.value === 'true')}
-                  disabled={actionLoading || marketState?.status !== 0}
-                >
-                  <option value="true">YES</option>
-                  <option value="false">NO</option>
-                </select>
-              </div>
-              <button
-                className="btn btn-warning w-full"
-                onClick={handleResolve}
-                disabled={actionLoading || marketState?.status !== 0}
-              >
-                {actionLoading ? (
-                  <span className="loading loading-spinner"></span>
-                ) : (
-                  'Resolve Market'
-                )}
-              </button>
-            </div>
+        {loading && markets.length === 0 ? (
+          <div className="flex justify-center items-center min-h-[400px]">
+            <span className="loading loading-spinner loading-lg"></span>
           </div>
+        ) : markets.length === 0 ? (
+          <div className="alert alert-info">
+            <span>No markets found. Create a market to get started.</span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {markets.map((market) => (
+              <AdminMarketCard
+                key={market.marketId}
+                marketId={market.marketId}
+                marketState={marketStates[market.marketId] || null}
+                metadata={marketMetadata[market.marketId]}
+                onResolve={handleResolve}
+                onPause={handlePause}
+                onUnpause={handleUnpause}
+                actionLoading={actionLoading[market.marketId] || false}
+              />
+            ))}
+          </div>
+        )}
 
-          {/* Pause/Unpause */}
-          <div className="card bg-base-100 shadow-xl lg:col-span-2">
-            <div className="card-body">
-              <h3 className="card-title mb-4">Market Control</h3>
-              <div className="flex gap-4">
-                <button
-                  className="btn btn-warning flex-1"
-                  onClick={handlePause}
-                  disabled={actionLoading || marketState?.status !== 0}
-                >
-                  {actionLoading ? (
-                    <span className="loading loading-spinner"></span>
-                  ) : (
-                    'Pause Market'
-                  )}
-                </button>
-                <button
-                  className="btn btn-success flex-1"
-                  onClick={handleUnpause}
-                  disabled={actionLoading || marketState?.status !== 2}
-                >
-                  {actionLoading ? (
-                    <span className="loading loading-spinner"></span>
-                  ) : (
-                    'Unpause Market'
-                  )}
-                </button>
-              </div>
-            </div>
+        {markets.length > 0 && (
+          <div className="mt-8 text-center text-sm text-base-content/60">
+            Total markets: {markets.length} | Auto-refreshes every 30 seconds
           </div>
-        </div>
+        )}
       </div>
     </>
   );

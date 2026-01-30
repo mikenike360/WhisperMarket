@@ -10,7 +10,19 @@ export interface FeeMapping {
     // https://playground.aleo.org/
     transfer_public: 0.04406,
     transfer_private: 0.04406,
+    join: 0.05, // Fee for joining/combining credit records
     init: 0.05, // Estimated fee for init function - adjust based on actual testing
+    // Prediction Market Functions
+    open_position_private: 0.05, // Estimated - adjust based on actual testing
+    deposit_private: 0.05, // Estimated - adjust based on actual testing
+    swap_collateral_for_yes_private: 0.05, // Estimated - adjust based on actual testing
+    swap_collateral_for_no_private: 0.05, // Estimated - adjust based on actual testing
+    merge_tokens_private: 0.05, // Estimated - adjust based on actual testing
+    withdraw_private: 0.05, // Estimated - adjust based on actual testing
+    redeem_private: 0.05, // Estimated - adjust based on actual testing
+    resolve: 0.05, // Estimated - adjust based on actual testing
+    pause: 0.05, // Estimated - adjust based on actual testing
+    unpause: 0.05, // Estimated - adjust based on actual testing
   };
   
   /**

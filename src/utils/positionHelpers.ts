@@ -55,19 +55,22 @@ export function calculatePriceFromReserves(
  *   - Apply fee to NO tokens being swapped
  *   - Swap NO → YES: yes_out = (no_after_fee * yes_reserve) / (no_reserve + no_after_fee)
  *   - Total YES = minted_yes + yes_out
- * 
+ *
  * When swapping collateral for NO:
  *   - Mint equal YES + NO tokens (1:1 with collateral)
  *   - Apply fee to YES tokens being swapped
  *   - Swap YES → NO: no_out = (yes_after_fee * no_reserve) / (yes_reserve + yes_after_fee)
  *   - Total NO = minted_no + no_out
- * 
- * @param collateralIn - Collateral amount to swap
- * @param yesReserve - Current YES reserve
- * @param noReserve - Current NO reserve
+ *
+ * Units: collateralIn, yesReserve, and noReserve must be in microcredits.
+ * Return value is in microcredits. Use toCredits() for display.
+ *
+ * @param collateralIn - Collateral amount to swap (microcredits)
+ * @param yesReserve - Current YES reserve (microcredits)
+ * @param noReserve - Current NO reserve (microcredits)
  * @param feeBps - Fee in basis points
  * @param side - 'yes' or 'no'
- * @returns Expected output tokens
+ * @returns Expected output tokens (microcredits)
  */
 export function calculateSwapOutput(
   collateralIn: number,

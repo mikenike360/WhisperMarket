@@ -22,8 +22,8 @@ let PuzzleWalletAdapter: any = null;
 try {
   const puzzleModule = require('@provablehq/aleo-wallet-adaptor-puzzle');
   PuzzleWalletAdapter = puzzleModule.PuzzleWalletAdapter;
-} catch (error) {
-  console.warn('PuzzleWalletAdapter could not be loaded:', error);
+} catch {
+  // PuzzleWalletAdapter not available
 }
 
 // Import global styles and wallet modal styles
@@ -48,8 +48,8 @@ const wallets = [
 if (PuzzleWalletAdapter) {
   try {
     wallets.push(new PuzzleWalletAdapter());
-  } catch (error) {
-    console.warn('Failed to initialize PuzzleWalletAdapter:', error);
+  } catch {
+    // Puzzle wallet init failed
   }
 }
 
@@ -70,7 +70,7 @@ function CustomApp({ Component, pageProps }: AppPropsWithLayout) {
         <Hydrate state={pageProps.dehydratedState}>
           <AleoWalletProvider
             wallets={wallets}
-            decryptPermission={DecryptPermission.UponRequest}
+            decryptPermission={DecryptPermission.AutoDecrypt}
             network={Network.TESTNET}
             autoConnect={true}
           >

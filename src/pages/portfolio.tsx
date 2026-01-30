@@ -2,121 +2,120 @@ import React, { useState, useEffect } from 'react';
 import type { NextPageWithLayout } from '@/types';
 import { NextSeo } from 'next-seo';
 import Layout from '@/layouts/_layout';
-import { useRouter } from 'next/router';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
-import { WalletNotConnectedError } from '@provablehq/aleo-wallet-adaptor-core';
-import { PositionCard } from '@/components/market/PositionCard';
-import { RedeemButton } from '@/components/market/RedeemButton';
-import { getMarketState, getUserPositionRecords } from '@/components/aleo/rpc';
-import { PREDICTION_MARKET_PROGRAM_ID } from '@/types';
+import {
+  getMarketState,
+  getAllUserPositions,
+} from '@/components/aleo/rpc';
+import { UserPosition, MarketState, MarketMetadata, PREDICTION_MARKET_PROGRAM_ID } from '@/types';
+import { PortfolioPositionCard } from '@/components/portfolio/PortfolioPositionCard';
+import { PortfolioSummary } from '@/components/portfolio/PortfolioSummary';
+import { getMarketsMetadata } from '@/services/marketMetadata';
+
+interface PositionWithData {
+  position: UserPosition;
+  record: any;
+  marketState: MarketState | null;
+  metadata: MarketMetadata | null;
+}
 
 const PortfolioPage: NextPageWithLayout = () => {
-  const router = useRouter();
-  const { publicKey, wallet } = useWallet();
-  const [marketState, setMarketState] = useState<any>(null);
-  const [userPosition, setUserPosition] = useState<any>(null);
-  const [positionRecord, setPositionRecord] = useState<any>(null);
+  const walletHook = useWallet();
+  const { publicKey, wallet, address, requestRecords } = walletHook as any;
+  const [positions, setPositions] = useState<PositionWithData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Get market ID from query parameter
-  // Usage: /portfolio?marketId=0field or /portfolio?marketId=1field
-  const marketId = (router.query.marketId as string) || null;
+  const userAddress = publicKey || address;
 
-  useEffect(() => {
-    if (!marketId) {
+  const loadPortfolio = async () => {
+    if (!userAddress || !wallet) {
       setLoading(false);
-      setError('MARKET_ID_REQUIRED');
       return;
     }
 
-    if (publicKey && wallet) {
-      loadData();
-      // Poll for updates every 5 seconds
-      const interval = setInterval(loadData, 5000);
-      return () => clearInterval(interval);
-    } else {
-      setLoading(false);
-    }
-  }, [publicKey, wallet, marketId]);
-
-  const loadData = async () => {
-    if (!publicKey || !wallet || !marketId) return;
+    setLoading(true);
+    setError(null);
 
     try {
-      setLoading(true);
-      const [market, position] = await Promise.all([
-        getMarketState(marketId),
-        getUserPositionRecords(wallet, PREDICTION_MARKET_PROGRAM_ID, marketId),
-      ]);
-      setMarketState(market);
-      setUserPosition(position);
-      
-      // Also fetch the actual Position record object for redemption
-      if (position) {
-        const allRecords = await wallet.requestRecords(PREDICTION_MARKET_PROGRAM_ID);
-        const recordObj = allRecords.find((r: any) => {
-          if (r.spent) return false;
-          const recordData = r.data || r;
-          if (recordData.market_id) {
-            const recordMarketId = String(recordData.market_id).replace(/\.private$/, '');
-            return recordMarketId === marketId;
-          }
-          return false;
-        });
-        setPositionRecord(recordObj || null);
-      } else {
-        setPositionRecord(null);
+      // Get all Position records from wallet
+      const allPositions = await getAllUserPositions(wallet, PREDICTION_MARKET_PROGRAM_ID, requestRecords);
+
+      if (allPositions.length === 0) {
+        setPositions([]);
+        setLoading(false);
+        return;
       }
-      
-      setError(null);
+
+      // Extract unique market IDs
+      const marketIds = allPositions.map(p => p.position.marketId);
+
+      // Fetch market states and metadata in parallel
+      const [marketStatesResults, metadataMap] = await Promise.all([
+        Promise.all(
+          marketIds.map(async (marketId) => {
+            try {
+              const state = await getMarketState(marketId);
+              return { marketId, state };
+            } catch (err: any) {
+              if (process.env.NODE_ENV === 'development') {
+              }
+              return { marketId, state: null };
+            }
+          })
+        ),
+        getMarketsMetadata(marketIds),
+      ]);
+
+      // Create a map of marketId -> MarketState
+      const marketStatesMap: Record<string, MarketState | null> = {};
+      marketStatesResults.forEach(({ marketId, state }) => {
+        marketStatesMap[marketId] = state;
+      });
+
+      // Convert metadata map to include marketId
+      const fullMetadataMap: Record<string, MarketMetadata> = {};
+      Object.entries(metadataMap).forEach(([marketId, metadata]) => {
+        fullMetadataMap[marketId] = { ...metadata, marketId };
+      });
+
+      // Combine position data with market states and metadata
+      const positionsWithData: PositionWithData[] = allPositions.map(({ position, record }) => ({
+        position,
+        record,
+        marketState: marketStatesMap[position.marketId] || null,
+        metadata: fullMetadataMap[position.marketId] || null,
+      }));
+
+      setPositions(positionsWithData);
     } catch (err: any) {
-      setError(err.message || 'Failed to load portfolio data');
+      setError(err.message || 'Failed to load portfolio');
     } finally {
       setLoading(false);
     }
   };
 
-  const calculatePotentialPayout = () => {
-    if (!marketState || !userPosition) return 0;
-
-    if (marketState.status !== 1 || marketState.outcome === null) return 0;
-
-    const { outcome } = marketState;
-    const { yesShares, noShares } = userPosition;
-
-    // 1:1 redemption model: each winning token = 1 collateral unit
-    if (outcome === true && yesShares > 0) {
-      return yesShares; // YES wins, payout = yesShares
-    } else if (outcome === false && noShares > 0) {
-      return noShares; // NO wins, payout = noShares
+  // Initial load
+  useEffect(() => {
+    if (userAddress && wallet) {
+      loadPortfolio();
+    } else {
+      setLoading(false);
     }
+  }, [userAddress, wallet]);
 
-    return 0;
-  };
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    if (!userAddress || !wallet) return;
 
-  if (!marketId) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="card bg-base-200 shadow-xl max-w-2xl mx-auto">
-          <div className="card-body">
-            <h2 className="card-title text-warning">Market ID Required</h2>
-            <p className="text-base-content/80">
-              Please specify a market ID in the URL query parameter.
-            </p>
-            <div className="divider">Usage</div>
-            <p className="text-sm">
-              Add <code className="badge badge-ghost">?marketId=YOUR_MARKET_ID</code> to the URL.
-              <br />
-              Example: <code className="badge badge-ghost">/portfolio?marketId=0field</code>
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+    const interval = setInterval(() => {
+      loadPortfolio();
+    }, 30000); // 30 seconds
 
-  if (!publicKey) {
+    return () => clearInterval(interval);
+  }, [userAddress, wallet]);
+
+  if (!userAddress) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="alert alert-warning">
@@ -126,82 +125,106 @@ const PortfolioPage: NextPageWithLayout = () => {
     );
   }
 
-  if (loading && !userPosition) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-center items-center min-h-[400px]">
-          <span className="loading loading-spinner loading-lg"></span>
-        </div>
-      </div>
-    );
-  }
-
-  if (error && !userPosition) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="alert alert-error">
-          <span>{error}</span>
-        </div>
-      </div>
-    );
-  }
-
-  const potentialPayout = calculatePotentialPayout();
-
   return (
     <>
       <NextSeo title="Portfolio" description="View your prediction market positions" />
 
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-4xl font-bold mb-8">Your Portfolio</h1>
-
-        {userPosition && (
-          <>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              <PositionCard
-                yesShares={userPosition.yesShares}
-                noShares={userPosition.noShares}
-                collateralAvailable={userPosition.collateralAvailable}
-                collateralCommitted={userPosition.collateralCommitted}
-                payoutClaimed={userPosition.payoutClaimed}
-              />
-
-              {marketState && marketState.status === 1 && (
-                <div className="card bg-base-100 shadow-xl">
-                  <div className="card-body">
-                    <h3 className="card-title mb-4">Potential Payout</h3>
-                    <div className="stat">
-                      <div className="stat-title">Estimated Payout</div>
-                      <div className="stat-value text-success">
-                        {potentialPayout.toLocaleString()}
-                      </div>
-                      <div className="stat-desc">credits (1:1 redemption)</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {marketState && positionRecord && (
-              <RedeemButton
-                marketId={marketId}
-                positionRecord={positionRecord}
-                isResolved={marketState.status === 1}
-                outcome={marketState.outcome}
-                userYesShares={userPosition.yesShares}
-                userNoShares={userPosition.noShares}
-                alreadyRedeemed={userPosition.payoutClaimed}
-                estimatedPayout={potentialPayout}
-                onRedeemed={loadData}
-              />
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-4xl font-bold mb-2">Your Portfolio</h1>
+            <p className="text-base-content/70">
+              Connected as: <code className="text-xs">{String(userAddress).slice(0, 30)}...</code>
+            </p>
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={loadPortfolio}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <span className="loading loading-spinner"></span>
+                Loading...
+              </>
+            ) : (
+              <>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                Refresh
+              </>
             )}
-          </>
+          </button>
+        </div>
+
+        {error && (
+          <div className="alert alert-error mb-6">
+            <span>{error}</span>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => setError(null)}
+            >
+              ✕
+            </button>
+          </div>
         )}
 
-        {!userPosition && (
-          <div className="alert alert-info">
-            <span>You have no positions yet. Start trading on the market page!</span>
+        {loading && positions.length === 0 ? (
+          <div className="flex justify-center items-center min-h-[400px]">
+            <span className="loading loading-spinner loading-lg"></span>
           </div>
+        ) : positions.length === 0 ? (
+          <div className="alert alert-info">
+            <span>You have no positions yet. Start trading on the markets page!</span>
+            <div className="mt-4">
+              <a href="/markets" className="btn btn-primary btn-sm">
+                Browse Markets
+              </a>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Summary Statistics */}
+            <PortfolioSummary
+              positions={positions.map(p => ({
+                position: p.position,
+                marketState: p.marketState,
+              }))}
+            />
+
+            {/* Positions Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+              {positions.map(({ position, record, marketState, metadata }) => (
+                <PortfolioPositionCard
+                  key={position.marketId}
+                  marketId={position.marketId}
+                  position={position}
+                  marketState={marketState}
+                  metadata={metadata || undefined}
+                  positionRecord={record}
+                  onRedeem={loadPortfolio}
+                />
+              ))}
+            </div>
+
+            {positions.length > 0 && (
+              <div className="mt-8 text-center text-sm text-base-content/60">
+                Showing {positions.length} position{positions.length !== 1 ? 's' : ''} | Auto-refreshes every 30 seconds
+              </div>
+            )}
+          </>
         )}
       </div>
     </>
