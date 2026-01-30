@@ -126,7 +126,7 @@ flowchart TB
   end
 
   subgraph frontend["Frontend (Next.js)"]
-    App[App UI\nMarkets · Portfolio · Admin]
+    App[App UI - Markets · Portfolio · Admin]
   end
 
   subgraph wallet["Aleo Wallet"]
