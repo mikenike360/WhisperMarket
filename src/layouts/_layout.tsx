@@ -4,8 +4,6 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { WalletMultiButton } from '@provablehq/aleo-wallet-adaptor-react-ui';
 import { HomeIcon } from '@/components/icons/home';
-import { Twitter } from '@/components/icons/twitter';
-import { Discord } from '@/components/icons/discord';
 import { useTheme } from 'next-themes';
 import Footer from '@/components/ui/Footer';
 import { TransactionTracker } from '@/components/transactions/TransactionTracker';
@@ -92,28 +90,6 @@ export function Header() {
               Portfolio
             </Link>
           </nav>
-          {process.env.TWITTER && (
-            <a
-              className="bg-base-300 bg-opacity-20 rounded-full p-2"
-              href={process.env.TWITTER}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Twitter"
-            >
-              <Twitter width="18" height="18" />
-            </a>
-          )}
-          {process.env.DISCORD && (
-            <a
-              className="bg-base-300 bg-opacity-20 rounded-full p-2"
-              href={process.env.DISCORD}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Discord"
-            >
-              <Discord width="18" height="18" />
-            </a>
-          )}
         </div>
         <div className="ml-2 mt-2">
           <HeaderRightArea />
