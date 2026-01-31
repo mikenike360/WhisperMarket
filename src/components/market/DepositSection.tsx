@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { openPositionPrivate, depositPrivate } from '@/lib/aleo/rpc';
+import { isIntentOnlyWallet } from '@/lib/aleo/wallet/adapter';
 import { filterUnspentRecords, pickRecordForAmount } from '@/lib/aleo/wallet/records';
 import { toMicrocredits } from '@/utils/credits';
 import { PREDICTION_MARKET_PROGRAM_ID, UserPosition } from '@/types';
@@ -49,29 +50,32 @@ export const DepositSection: React.FC<DepositSectionProps> = ({
     setError(null);
 
     try {
-      if (!requestRecords) {
-        throw new Error('Wallet does not support record access. Please use a wallet that supports viewing records.');
+      let creditRecord: unknown = undefined;
+      let positionRecord: unknown = undefined;
+
+      if (requestRecords && !isIntentOnlyWallet(wallet)) {
+        const creditRecords = await requestRecords('credits.aleo');
+        const unspentCredits = filterUnspentRecords(creditRecords ?? []);
+        if (unspentCredits.length === 0) {
+          throw new Error('No unspent credit records found');
+        }
+        const chosen = pickRecordForAmount(unspentCredits, depositMicrocredits);
+        if (!chosen) {
+          throw new Error('No credit record with sufficient balance');
+        }
+        creditRecord = chosen.record;
+        if (hasPosition && userPositionRecord) positionRecord = userPositionRecord;
       }
-      const creditRecords = await requestRecords('credits.aleo');
-      const unspentCredits = filterUnspentRecords(creditRecords ?? []);
-      if (unspentCredits.length === 0) {
-        throw new Error('No unspent credit records found');
-      }
-      const chosen = pickRecordForAmount(unspentCredits, depositMicrocredits);
-      if (!chosen) {
-        throw new Error('No credit record with sufficient balance');
-      }
-      const creditRecord = chosen.record;
 
       let txId: string;
-      if (hasPosition && userPositionRecord) {
+      if (hasPosition && positionRecord) {
         txId = await depositPrivate(
           wallet,
           userAddress,
           marketId,
-          creditRecord,
+          creditRecord as string | undefined,
           depositMicrocredits,
-          userPositionRecord,
+          positionRecord as string | undefined,
           0
         );
       } else {
@@ -79,7 +83,7 @@ export const DepositSection: React.FC<DepositSectionProps> = ({
           wallet,
           userAddress,
           marketId,
-          creditRecord,
+          creditRecord as string | undefined,
           depositMicrocredits,
           0
         );

@@ -44,13 +44,13 @@ const MarketPage: NextPageWithLayout = () => {
 
     loadMarketState();
     loadUserPosition();
-    // Poll for updates every 10 seconds, only if no error
+    // Poll for updates every 90 seconds, only if no error
     const interval = setInterval(() => {
       if (!error && marketId) {
         loadMarketState();
         loadUserPosition();
       }
-    }, 10000);
+    }, 90000);
     return () => clearInterval(interval);
   }, [error, marketId]);
 

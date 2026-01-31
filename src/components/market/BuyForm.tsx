@@ -4,6 +4,7 @@ import {
   swapCollateralForYesPrivate,
   swapCollateralForNoPrivate,
 } from '@/lib/aleo/rpc';
+import { isIntentOnlyWallet } from '@/lib/aleo/wallet/adapter';
 import { calculateSwapOutput } from '@/utils/positionHelpers';
 import { toMicrocredits, toCredits } from '@/utils/credits';
 import { MarketState, UserPosition } from '@/types';
@@ -93,19 +94,10 @@ export const BuyForm: React.FC<BuyFormProps> = ({
     setError(null);
 
     try {
-      if (!requestRecords) {
-        throw new Error('Wallet does not support record access. Please use a wallet that supports viewing records.');
-      }
+      // With Leo we have userPositionRecord; with Shield (intent path) we pass undefined and wallet will prompt for position
+      const positionRecord = !isIntentOnlyWallet(wallet) && requestRecords && userPositionRecord ? userPositionRecord : undefined;
 
-      if (!userPosition) {
-        throw new Error('No position found. Add collateral first using the section above.');
-      }
-
-      if (!userPositionRecord) {
-        throw new Error('Position record not found in wallet.');
-      }
-
-      if (userPosition.collateralAvailable < buyMicrocredits) {
+      if (requestRecords && !isIntentOnlyWallet(wallet) && userPosition && userPosition.collateralAvailable < buyMicrocredits) {
         throw new Error(
           `Insufficient available collateral. Available: ${toCredits(userPosition.collateralAvailable).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits`
         );
@@ -127,7 +119,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           wallet,
           userAddress,
           marketId,
-          userPositionRecord,
+          positionRecord,
           buyMicrocredits,
           minOutput,
           marketState.yesReserve,
@@ -140,7 +132,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           wallet,
           userAddress,
           marketId,
-          userPositionRecord,
+          positionRecord,
           buyMicrocredits,
           minOutput,
           marketState.yesReserve,
@@ -173,9 +165,14 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           </div>
         )}
 
-        {!hasPosition && (
+        {requestRecords && !isIntentOnlyWallet(wallet) && !hasPosition && (
           <div className="alert alert-info mb-4 text-sm">
             <span>Add collateral in the section above first, then come back to buy shares.</span>
+          </div>
+        )}
+        {(!requestRecords || isIntentOnlyWallet(wallet)) && (
+          <div className="alert alert-info mb-4 text-sm">
+            <span>With Shield wallet you can buy directly; the wallet will prompt you to select a position record.</span>
           </div>
         )}
 
@@ -191,7 +188,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
             onChange={(e) => setAmount(e.target.value)}
             min="0"
             step="0.01"
-            disabled={loading || !hasPosition}
+            disabled={loading || (requestRecords && !isIntentOnlyWallet(wallet) ? !hasPosition : false)}
           />
         </div>
 
@@ -232,7 +229,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
         <button
           className="btn btn-primary w-full btn-sm"
           onClick={handleBuy}
-          disabled={loading || !userAddress || !wallet || !isOpen || isPaused || !hasPosition}
+          disabled={loading || !userAddress || !wallet || !isOpen || isPaused || (requestRecords && !isIntentOnlyWallet(wallet) ? !hasPosition : false)}
         >
           {loading ? (
             <span className="loading loading-spinner loading-sm"></span>

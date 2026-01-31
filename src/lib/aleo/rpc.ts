@@ -1,7 +1,7 @@
 import { CREDITS_PROGRAM_ID, PREDICTION_MARKET_PROGRAM_ID, MarketState, UserPosition } from '@/types';
 import { getFeeForFunction } from '@/utils/feeCalculator';
-import { findWalletAdapter } from './wallet/adapter';
-import { createTransactionOptions } from './wallet/tx';
+import { findWalletAdapter, hasRequestRecords, isIntentOnlyWallet } from './wallet/adapter';
+import { createTransactionOptions, createIntentTransactionOptions, RECORD_TYPE_CREDITS, RECORD_TYPE_POSITION } from './wallet/tx';
 import {
   getRecordId,
   areRecordsDistinct,
@@ -650,11 +650,90 @@ export async function initMarket(
     }
   }
 
-  if (!requestRecordsFn) {
-    throw new Error(
-      'requestRecords not available. ' +
-      'Please ensure your wallet is properly connected and supports record access.'
+  const saltField = salt.endsWith('field') ? salt : `${salt}field`;
+  const fee = getFeeForFunction('init');
+
+  // init() inputs (0-based): 0=initial_liquidity, 1=bond_amount, 2=fee_bps, 3=metadata_hash, 4=salt, 5=credit_record.
+  // If an error says "input #5", it may be 1-based (meaning salt at our index 4) or 0-based (meaning record at our index 5).
+
+  // Shield: when we have records, pass the record object at input 5 so recordToInputForAdapter extracts the ciphertext. If requestRecords fails or returns nothing, fall back to intent path (wallet handles failure).
+  if (isIntentOnlyWallet(wallet)) {
+    if (requestRecordsFn) {
+      try {
+        const allRecords = await requestRecordsFn(CREDITS_PROGRAM_ID, false);
+        if (allRecords?.length > 0) {
+          const unspentRecords = filterUnspentRecords(allRecords);
+          if (unspentRecords.length > 0) {
+            const firstRecord = unspentRecords[0].record;
+            const inputs = [
+              `${initialLiquidity}u64`,
+              `${bondAmount}u64`,
+              `${feeBps}u64`,
+              `${metadataHash}field`,
+              saltField,
+              firstRecord,
+            ];
+            const transactionOptions = createTransactionOptions(
+              PREDICTION_MARKET_PROGRAM_ID,
+              'init',
+              inputs,
+              fee,
+              false,
+              [5]
+            );
+            const result = (await walletAdapter.executeTransaction(transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+            const transactionId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+            if (transactionId) return String(transactionId).trim();
+          }
+        }
+      } catch (_) {
+        // e.g. UUID not found — fall through to intent path below
+      }
+    }
+    const inputs = [
+      `${initialLiquidity}u64`,
+      `${bondAmount}u64`,
+      `${feeBps}u64`,
+      `${metadataHash}field`,
+      saltField,
+      RECORD_TYPE_CREDITS,
+    ];
+    const transactionOptions = createIntentTransactionOptions(
+      PREDICTION_MARKET_PROGRAM_ID,
+      'init',
+      inputs,
+      fee,
+      false,
+      [5]
     );
+    const result = (await walletAdapter.executeTransaction(transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+    const transactionId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+    if (!transactionId) throw new Error('Transaction submitted but no transaction ID returned.');
+    return String(transactionId).trim();
+  }
+
+  // Intent path for wallets that do not support requestRecords (non-Shield)
+  if (!requestRecordsFn || !hasRequestRecords(wallet)) {
+    const inputs = [
+      `${initialLiquidity}u64`,
+      `${bondAmount}u64`,
+      `${feeBps}u64`,
+      `${metadataHash}field`,
+      saltField,
+      RECORD_TYPE_CREDITS,
+    ];
+    const transactionOptions = createIntentTransactionOptions(
+      PREDICTION_MARKET_PROGRAM_ID,
+      'init',
+      inputs,
+      fee,
+      false,
+      [5]
+    );
+    const result = (await walletAdapter.executeTransaction(transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+    const transactionId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+    if (!transactionId) throw new Error('Transaction submitted but no transaction ID returned.');
+    return String(transactionId).trim();
   }
 
   const spendAmount = bondAmount + initialLiquidity;
@@ -676,35 +755,26 @@ export async function initMarket(
     throw new Error('No unspent credit records available in wallet.');
   }
 
-  // Check if we have records with ciphertext (Shield recordCiphertext, Leo record/value, etc. — can't always validate amounts)
   const hasCiphertextRecords = unspentRecords.some((r) => {
     const x = r.record as Record<string, unknown>;
     const v = x?.recordCiphertext ?? x?.ciphertext ?? x?.record ?? x?.value;
     return typeof v === 'string' && v.startsWith('record') && v.length > 50;
   });
 
-  // Try to find two distinct records
   let records = findDistinctRecords(allRecords, spendAmount, feeAmount);
 
-  // If we couldn't find distinct records, let the wallet adapter handle it
   if (!records) {
     if (hasCiphertextRecords) {
-      // Use first two ciphertext records; wallet adapter will handle validation
       if (unspentRecords.length >= 2) {
-        records = {
-          spendRecord: unspentRecords[0].record,
-          feeRecord: unspentRecords[1].record
-        };
+        records = { spendRecord: unspentRecords[0].record, feeRecord: unspentRecords[1].record };
       } else if (unspentRecords.length === 1) {
         records = null;
       } else {
         throw new Error('No unspent credit records available in wallet.');
       }
     } else {
-      // For decrypted records, provide helpful error but let wallet adapter be the final validator
       const totalSpendNeeded = spendAmount + feeAmount;
       const totalBalance = unspentRecords.reduce((sum, r) => sum + r.value, 0);
-      
       if (totalBalance < totalSpendNeeded) {
         throw new Error(
           `Insufficient balance. Need ${(totalSpendNeeded / 1_000_000).toFixed(6)} credits total ` +
@@ -712,51 +782,28 @@ export async function initMarket(
           `but only have ${(totalBalance / 1_000_000).toFixed(6)} credits.`
         );
       }
-      
-      // If we have balance but couldn't find distinct records, try to proceed anyway
-      // The wallet adapter will handle the actual validation
       if (unspentRecords.length >= 2) {
-        records = {
-          spendRecord: unspentRecords[0].record,
-          feeRecord: unspentRecords[1].record
-        };
+        records = { spendRecord: unspentRecords[0].record, feeRecord: unspentRecords[1].record };
       } else {
         records = null;
       }
     }
   }
-  
-  // If records is still null, use the first available record
-  // The wallet adapter will handle fee record selection automatically
+
   if (!records) {
-    if (unspentRecords.length === 0) {
-      throw new Error('No unspent credit records available in wallet.');
-    }
-    // Use the first record - wallet adapter will handle fee record selection
-    records = {
-      spendRecord: unspentRecords[0].record,
-      feeRecord: unspentRecords[0].record
-    };
+    if (unspentRecords.length === 0) throw new Error('No unspent credit records available in wallet.');
+    records = { spendRecord: unspentRecords[0].record, feeRecord: unspentRecords[0].record };
   }
 
   const spendRecordId = getRecordId(records.spendRecord);
   const feeRecordId = getRecordId(records.feeRecord);
 
   const chainHeight = await getLatestBlockHeight();
-  const recordValidation = await preflightRecordValidation(
-    records.spendRecord,
-    spendAmount,
-    publicKey,
-    chainHeight
-  );
-  
-  if (!recordValidation.valid) {
-    throw new Error(`Preflight validation failed: ${recordValidation.error}`);
-  }
-  
+  const recordValidation = await preflightRecordValidation(records.spendRecord, spendAmount, publicKey, chainHeight);
+  if (!recordValidation.valid) throw new Error(`Preflight validation failed: ${recordValidation.error}`);
+
   await preflightMarketIdCheck(publicKey, metadataHash, salt);
 
-  const saltField = salt.endsWith('field') ? salt : `${salt}field`;
   const inputs = [
     `${initialLiquidity}u64`,
     `${bondAmount}u64`,
@@ -765,15 +812,14 @@ export async function initMarket(
     saltField,
     records.spendRecord,
   ];
-  const fee = getFeeForFunction('init');
 
   const transactionOptions = createTransactionOptions(
     PREDICTION_MARKET_PROGRAM_ID,
     'init',
     inputs,
     fee,
-    true, // payFeesPrivately
-    [5] // spend_record at index 5 — pass through unchanged; do not stringify
+    true,
+    [5]
   );
 
   if (!transactionOptions.program || !transactionOptions.function || !Array.isArray(transactionOptions.inputs)) {
@@ -783,13 +829,8 @@ export async function initMarket(
   try {
     type ExecuteResult = { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string; txId?: string; id?: string }; result?: { transactionId?: string; txId?: string; id?: string }; status?: unknown; state?: unknown; pending?: unknown; error?: unknown; message?: unknown; reason?: unknown };
     const result = (await walletAdapter.executeTransaction(transactionOptions)) as ExecuteResult;
-    
-    // Try multiple possible fields for transaction ID (including nested)
     let transactionId = result?.transactionId || result?.txId || result?.id || result?.transaction_id;
-    
-    // Check nested structures (some adapters wrap the response)
     if (!transactionId && result) {
-      // Check if result has a nested data/result object
       if (result.data?.transactionId) transactionId = result.data.transactionId;
       if (result.data?.txId) transactionId = result.data.txId;
       if (result.data?.id) transactionId = result.data.id;
@@ -797,14 +838,9 @@ export async function initMarket(
       if (result.result?.txId) transactionId = result.result.txId;
       if (result.result?.id) transactionId = result.result.id;
     }
-    
-    if (!transactionId) {
-      throw new Error('Transaction submitted but no transaction ID returned. Please check your wallet for transaction status.');
-    }
-    
+    if (!transactionId) throw new Error('Transaction submitted but no transaction ID returned. Please check your wallet for transaction status.');
     return String(transactionId).trim();
   } catch (error: any) {
-    // Check error type and provide specific guidance
     if (error?.message?.includes('prove') || error?.message?.includes('proof')) {
       throw new Error(`Proving failed: ${error.message}. Check inputs and record validity.`);
     }
@@ -816,21 +852,14 @@ export async function initMarket(
     }
     if (error?.message?.includes('parse input') || error?.message?.includes('credits.aleo/credits.record')) {
       throw new Error(
-        `Input parsing failed: ${error.message}. ` +
-        `This usually means the record format is incorrect. ` +
-        `Check that Shield wallet records have recordCiphertext property.`
+        `Input parsing failed: ${error.message}. This usually means the record format is incorrect. Check that Shield wallet records have recordCiphertext property.`
       );
     }
-    
-    // Check if error is related to double-spend
     if (error.message && (error.message.includes('double') || error.message.includes('already spent') || error.message.includes('consumed'))) {
       throw new Error(
-        `Double-spend detected: The wallet may have selected the same record for the fee. ` +
-        `spend_record.id: ${spendRecordId}, fee_record.id: ${feeRecordId}. ` +
-        `This is a wallet adapter issue - please ensure you have multiple distinct records.`
+        `Double-spend detected: The wallet may have selected the same record for the fee. spend_record.id: ${spendRecordId}, fee_record.id: ${feeRecordId}. Please ensure you have multiple distinct records.`
       );
     }
-    
     throw error;
   }
 }
@@ -838,125 +867,92 @@ export async function initMarket(
 
 /**
  * Open position (first-time) - Creates initial Position record.
- * Amounts are in microcredits (program convention). Callers must pass microcredits.
- *
- * @param wallet - Wallet adapter instance
- * @param publicKey - Public key of the user
- * @param marketId - Field-based market ID
- * @param creditRecord - Credit record for deposit
- * @param amount - Amount to deposit (u64, microcredits)
- * @param statusHint - Market status hint (0=open)
+ * When creditRecord is omitted (e.g. Shield), uses intent path: wallet fills record slot.
  */
 export async function openPositionPrivate(
   wallet: any,
   publicKey: string,
   marketId: string,
-  creditRecord: string,
+  creditRecord: string | undefined,
   amount: number,
   statusHint: number = 0
 ): Promise<string> {
   const walletAdapter = findWalletAdapter(wallet);
-  if (!walletAdapter) {
-    throw new Error('Wallet adapter does not support transaction execution');
-  }
+  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
   const amountU64 = Math.floor(Number(amount));
   if (amountU64 < 1 || amountU64 > Number.MAX_SAFE_INTEGER) {
     throw new Error(`Invalid deposit amount: ${amount} microcredits`);
   }
-  const inputs = [
-    `${marketId}field`,
-    creditRecord,
-    `${amountU64}u64`,
-    `${statusHint}u8`,
-  ];
 
   const fee = getFeeForFunction('open_position_private');
-  const transactionOptions = createTransactionOptions(
-    PREDICTION_MARKET_PROGRAM_ID,
-    'open_position_private',
-    inputs,
-    fee,
-    true, // payFeesPrivately
-    [1] // credit_record at index 1
-  );
 
+  if (creditRecord == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet)) {
+    const inputs = [`${marketId}field`, RECORD_TYPE_CREDITS, `${amountU64}u64`, `${statusHint}u8`];
+    const opts = createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'open_position_private', inputs, fee, false, [1]);
+    const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+    const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+    if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+    return String(txId).trim();
+  }
+
+  const inputs = [`${marketId}field`, creditRecord, `${amountU64}u64`, `${statusHint}u8`];
+  const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'open_position_private', inputs, fee, true, [1]);
   const result = await walletAdapter.executeTransaction(transactionOptions);
-  return result.transactionId;
+  const txId = result?.transactionId || (result as any)?.txId || (result as any)?.id || (result as any)?.transaction_id || (result as any)?.data?.transactionId || (result as any)?.result?.transactionId;
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return String(txId).trim();
 }
 
 /**
  * Deposit private - Adds collateral to existing Position.
- * Amounts are in microcredits (program convention). Callers must pass microcredits.
- *
- * @param wallet - Wallet adapter instance
- * @param publicKey - Public key of the user
- * @param marketId - Field-based market ID
- * @param creditRecord - Credit record for deposit
- * @param amount - Amount to deposit (u64, microcredits)
- * @param existingPosition - Existing Position record
- * @param statusHint - Market status hint (0=open)
+ * When creditRecord or existingPosition omitted (e.g. Shield), uses intent path: wallet fills record slots.
  */
 export async function depositPrivate(
   wallet: any,
   publicKey: string,
   marketId: string,
-  creditRecord: string,
+  creditRecord: string | undefined,
   amount: number,
-  existingPosition: string,
+  existingPosition: string | undefined,
   statusHint: number = 0
 ): Promise<string> {
   const walletAdapter = findWalletAdapter(wallet);
-  if (!walletAdapter) {
-    throw new Error('Wallet adapter does not support transaction execution');
-  }
+  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
   const amountU64 = Math.floor(Number(amount));
   if (amountU64 < 1 || amountU64 > Number.MAX_SAFE_INTEGER) {
     throw new Error(`Invalid deposit amount: ${amount} microcredits`);
   }
-  const inputs = [
-    `${marketId}field`,
-    creditRecord,
-    `${amountU64}u64`,
-    existingPosition,
-    `${statusHint}u8`,
-  ];
 
   const fee = getFeeForFunction('deposit_private');
-  const transactionOptions = createTransactionOptions(
-    PREDICTION_MARKET_PROGRAM_ID,
-    'deposit_private',
-    inputs,
-    fee,
-    true, // payFeesPrivately
-    [1, 3] // credit_record, existing_position
-  );
 
+  if (creditRecord == null || existingPosition == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet)) {
+    const inputs = [`${marketId}field`, RECORD_TYPE_CREDITS, `${amountU64}u64`, RECORD_TYPE_POSITION, `${statusHint}u8`];
+    const opts = createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'deposit_private', inputs, fee, false, [1, 3]);
+    const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+    const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+    if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+    return String(txId).trim();
+  }
+
+  const inputs = [`${marketId}field`, creditRecord, `${amountU64}u64`, existingPosition, `${statusHint}u8`];
+  const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'deposit_private', inputs, fee, true, [1, 3]);
   const result = await walletAdapter.executeTransaction(transactionOptions);
-  return result.transactionId;
+  const txId = result?.transactionId || (result as any)?.txId || (result as any)?.id || (result as any)?.transaction_id || (result as any)?.data?.transactionId || (result as any)?.result?.transactionId;
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return String(txId).trim();
 }
 
 /**
  * Swap collateral for YES shares using AMM.
- * Amounts (collateralIn, yesReserve, noReserve, minYesOut) are in microcredits (program convention). Callers must pass microcredits.
- *
- * @param wallet - Wallet adapter instance
- * @param publicKey - Public key of the user
- * @param marketId - Field-based market ID
- * @param existingPosition - Existing Position record
- * @param collateralIn - Collateral amount to swap (u64, microcredits)
- * @param minYesOut - Minimum YES shares expected (u128, microcredits, for slippage protection)
- * @param yesReserve - Current YES reserve (u128, microcredits)
- * @param noReserve - Current NO reserve (u128, microcredits)
- * @param feeBps - Fee in basis points (u64)
- * @param statusHint - Market status hint (0=open)
+ * When existingPosition omitted (e.g. Shield), uses intent path: wallet fills position record slot.
  */
 export async function swapCollateralForYesPrivate(
   wallet: any,
   publicKey: string,
   marketId: string,
-  existingPosition: string,
+  existingPosition: string | undefined,
   collateralIn: number,
   minYesOut: number,
   yesReserve: number,
@@ -965,13 +961,12 @@ export async function swapCollateralForYesPrivate(
   statusHint: number = 0
 ): Promise<string> {
   const walletAdapter = findWalletAdapter(wallet);
-  if (!walletAdapter) {
-    throw new Error('Wallet adapter does not support transaction execution');
-  }
+  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
+  const fee = getFeeForFunction('swap_collateral_for_yes_private');
   const inputs = [
     `${marketId}field`,
-    existingPosition,
+    existingPosition ?? RECORD_TYPE_POSITION,
     `${collateralIn}u64`,
     `${minYesOut}u128`,
     `${yesReserve}u128`,
@@ -980,40 +975,25 @@ export async function swapCollateralForYesPrivate(
     `${statusHint}u8`,
   ];
 
-  const fee = getFeeForFunction('swap_collateral_for_yes_private');
-  const transactionOptions = createTransactionOptions(
-    PREDICTION_MARKET_PROGRAM_ID,
-    'swap_collateral_for_yes_private',
-    inputs,
-    fee,
-    true, // payFeesPrivately
-    [1] // existing_position
-  );
-
-  const result = await walletAdapter.executeTransaction(transactionOptions);
-  return result.transactionId;
+  const useIntent = existingPosition == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet);
+  const opts = useIntent
+    ? createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_yes_private', inputs, fee, false, [1])
+    : createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_yes_private', inputs, fee, true, [1]);
+  const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return String(txId).trim();
 }
 
 /**
  * Swap collateral for NO shares using AMM.
- * Amounts (collateralIn, yesReserve, noReserve, minNoOut) are in microcredits (program convention). Callers must pass microcredits.
- *
- * @param wallet - Wallet adapter instance
- * @param publicKey - Public key of the user
- * @param marketId - Field-based market ID
- * @param existingPosition - Existing Position record
- * @param collateralIn - Collateral amount to swap (u64, microcredits)
- * @param minNoOut - Minimum NO shares expected (u128, microcredits, for slippage protection)
- * @param yesReserve - Current YES reserve (u128, microcredits)
- * @param noReserve - Current NO reserve (u128, microcredits)
- * @param feeBps - Fee in basis points (u64)
- * @param statusHint - Market status hint (0=open)
+ * When existingPosition omitted (e.g. Shield), uses intent path: wallet fills position record slot.
  */
 export async function swapCollateralForNoPrivate(
   wallet: any,
   publicKey: string,
   marketId: string,
-  existingPosition: string,
+  existingPosition: string | undefined,
   collateralIn: number,
   minNoOut: number,
   yesReserve: number,
@@ -1022,13 +1002,12 @@ export async function swapCollateralForNoPrivate(
   statusHint: number = 0
 ): Promise<string> {
   const walletAdapter = findWalletAdapter(wallet);
-  if (!walletAdapter) {
-    throw new Error('Wallet adapter does not support transaction execution');
-  }
+  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
+  const fee = getFeeForFunction('swap_collateral_for_no_private');
   const inputs = [
     `${marketId}field`,
-    existingPosition,
+    existingPosition ?? RECORD_TYPE_POSITION,
     `${collateralIn}u64`,
     `${minNoOut}u128`,
     `${yesReserve}u128`,
@@ -1037,142 +1016,93 @@ export async function swapCollateralForNoPrivate(
     `${statusHint}u8`,
   ];
 
-  const fee = getFeeForFunction('swap_collateral_for_no_private');
-  const transactionOptions = createTransactionOptions(
-    PREDICTION_MARKET_PROGRAM_ID,
-    'swap_collateral_for_no_private',
-    inputs,
-    fee,
-    true, // payFeesPrivately
-    [1] // existing_position
-  );
-
-  const result = await walletAdapter.executeTransaction(transactionOptions);
-  return result.transactionId;
+  const useIntent = existingPosition == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet);
+  const opts = useIntent
+    ? createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_no_private', inputs, fee, false, [1])
+    : createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_no_private', inputs, fee, true, [1]);
+  const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return String(txId).trim();
 }
 
 /**
- * Merge tokens to collateral (pre-resolution exit)
- * Burns equal amounts of YES and NO tokens to receive collateral back
- * @param wallet - Wallet adapter instance
- * @param publicKey - Public key of the user
- * @param marketId - Field-based market ID
- * @param existingPosition - Existing Position record
- * @param mergeAmount - Amount of YES/NO tokens to merge (u128)
- * @param minCollateralOut - Minimum collateral expected (u64, for slippage protection)
+ * Merge tokens to collateral (pre-resolution exit).
+ * When existingPosition omitted (e.g. Shield), uses intent path: wallet fills position record slot.
  */
 export async function mergeTokensPrivate(
   wallet: any,
   publicKey: string,
   marketId: string,
-  existingPosition: string,
+  existingPosition: string | undefined,
   mergeAmount: number,
   minCollateralOut: number
 ): Promise<string> {
   const walletAdapter = findWalletAdapter(wallet);
-  if (!walletAdapter) {
-    throw new Error('Wallet adapter does not support transaction execution');
-  }
-
-  const inputs = [
-    `${marketId}field`,
-    existingPosition,
-    `${mergeAmount}u128`,
-    `${minCollateralOut}u64`,
-  ];
+  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
   const fee = getFeeForFunction('merge_tokens_private');
-  const transactionOptions = createTransactionOptions(
-    PREDICTION_MARKET_PROGRAM_ID,
-    'merge_tokens_private',
-    inputs,
-    fee,
-    true, // payFeesPrivately
-    [1] // existing_position
-  );
-
-  const result = await walletAdapter.executeTransaction(transactionOptions);
-  return result.transactionId;
+  const inputs = [`${marketId}field`, existingPosition ?? RECORD_TYPE_POSITION, `${mergeAmount}u128`, `${minCollateralOut}u64`];
+  const useIntent = existingPosition == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet);
+  const opts = useIntent
+    ? createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, false, [1])
+    : createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, true, [1]);
+  const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return String(txId).trim();
 }
 
 /**
- * Withdraw private - Withdraws available collateral (only if no shares held)
- * @param wallet - Wallet adapter instance
- * @param publicKey - Public key of the user
- * @param marketId - Field-based market ID
- * @param existingPosition - Existing Position record
- * @param amount - Amount to withdraw (u64)
+ * Withdraw private - Withdraws available collateral (only if no shares held).
+ * When existingPosition omitted (e.g. Shield), uses intent path: wallet fills position record slot.
  */
 export async function withdrawPrivate(
   wallet: any,
   publicKey: string,
   marketId: string,
-  existingPosition: string,
+  existingPosition: string | undefined,
   amount: number
 ): Promise<string> {
   const walletAdapter = findWalletAdapter(wallet);
-  if (!walletAdapter) {
-    throw new Error('Wallet adapter does not support transaction execution');
-  }
-
-  const inputs = [
-    `${marketId}field`,
-    existingPosition,
-    `${amount}u64`,
-  ];
+  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
   const fee = getFeeForFunction('withdraw_private');
-  const transactionOptions = createTransactionOptions(
-    PREDICTION_MARKET_PROGRAM_ID,
-    'withdraw_private',
-    inputs,
-    fee,
-    true, // payFeesPrivately
-    [1] // existing_position
-  );
-
-  const result = await walletAdapter.executeTransaction(transactionOptions);
-  return result.transactionId;
+  const inputs = [`${marketId}field`, existingPosition ?? RECORD_TYPE_POSITION, `${amount}u64`];
+  const useIntent = existingPosition == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet);
+  const opts = useIntent
+    ? createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_private', inputs, fee, false, [1])
+    : createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_private', inputs, fee, true, [1]);
+  const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return String(txId).trim();
 }
 
 /**
- * Redeem private - Redeems winning shares after market resolution
- * @param wallet - Wallet adapter instance
- * @param publicKey - Public key of the user
- * @param marketId - Field-based market ID
- * @param existingPosition - Existing Position record
- * @param outcome - Market outcome (true=YES wins, false=NO wins)
+ * Redeem private - Redeems winning shares after market resolution.
+ * When existingPosition omitted (e.g. Shield), uses intent path: wallet fills position record slot.
  */
 export async function redeemPrivate(
   wallet: any,
   publicKey: string,
   marketId: string,
-  existingPosition: string,
+  existingPosition: string | undefined,
   outcome: boolean
 ): Promise<string> {
   const walletAdapter = findWalletAdapter(wallet);
-  if (!walletAdapter) {
-    throw new Error('Wallet adapter does not support transaction execution');
-  }
-
-  const inputs = [
-    `${marketId}field`,
-    existingPosition,
-    outcome ? 'true' : 'false',
-  ];
+  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
   const fee = getFeeForFunction('redeem_private');
-  const transactionOptions = createTransactionOptions(
-    PREDICTION_MARKET_PROGRAM_ID,
-    'redeem_private',
-    inputs,
-    fee,
-    true, // payFeesPrivately
-    [1] // existing_position
-  );
-
-  const result = await walletAdapter.executeTransaction(transactionOptions);
-  return result.transactionId;
+  const inputs = [`${marketId}field`, existingPosition ?? RECORD_TYPE_POSITION, outcome ? 'true' : 'false'];
+  const useIntent = existingPosition == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet);
+  const opts = useIntent
+    ? createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, false, [1])
+    : createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, true, [1]);
+  const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return String(txId).trim();
 }
 
 /**

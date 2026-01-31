@@ -53,3 +53,26 @@ export function findWalletAdapter(wallet: unknown): AleoWalletAdapter | null {
 
   return null;
 }
+
+/**
+ * Check if the connected wallet supports requestRecords (e.g. Leo).
+ * When false, use intent path: build transaction with recordIndices and let wallet (e.g. Shield) fill record slots.
+ */
+export function hasRequestRecords(wallet: unknown): boolean {
+  const adapter = findWalletAdapter(wallet);
+  return adapter !== null && typeof adapter.requestRecords === 'function';
+}
+
+/** Wallet names that handle records automatically; app should always use intent path (placeholders + recordIndices). */
+const INTENT_ONLY_WALLET_NAMES = ['Shield Wallet'] as const;
+
+/**
+ * True when the connected wallet is intent-only (e.g. Shield): it handles record selection internally.
+ * For these wallets we always use the intent path and never run record fetch/balance/selection in the app.
+ */
+export function isIntentOnlyWallet(wallet: unknown): boolean {
+  const adapter = findWalletAdapter(wallet);
+  if (!adapter) return false;
+  const name = (adapter as Record<string, unknown>)?.name as string | undefined;
+  return name != null && INTENT_ONLY_WALLET_NAMES.includes(name as (typeof INTENT_ONLY_WALLET_NAMES)[number]);
+}

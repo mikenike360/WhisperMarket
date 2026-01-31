@@ -98,3 +98,40 @@ export function createTransactionOptions(
     privateFee,
   };
 }
+
+/** Placeholder for intent path: wallet (e.g. Shield) will replace these with records. */
+export const RECORD_TYPE_CREDITS = 'credits.aleo/credits';
+export const RECORD_TYPE_POSITION = 'whisper_market.aleo/Position';
+
+export type IntentTransactionOptions = TransactionOptions & { recordIndices: number[] };
+
+/**
+ * Build transaction options for intent path (Shield / record-opaque wallets).
+ * Pass placeholders at record indices; include recordIndices so the wallet fills those slots.
+ * Primitives are normalized; record slots keep the placeholder (record type string).
+ * Fee is passed through in microcredits (caller uses getFeeForFunction).
+ */
+export function createIntentTransactionOptions(
+  programId: string,
+  functionName: string,
+  inputs: unknown[],
+  fee: number,
+  privateFee: boolean,
+  recordIndices: number[]
+): IntentTransactionOptions {
+  const processedInputs: unknown[] = inputs.map((input, index) => {
+    if (recordIndices.includes(index)) {
+      return typeof input === 'string' ? input : String(input);
+    }
+    return normalizePrimitive(input, index);
+  });
+
+  return {
+    program: programId,
+    function: functionName,
+    inputs: processedInputs,
+    fee,
+    privateFee,
+    recordIndices,
+  };
+}

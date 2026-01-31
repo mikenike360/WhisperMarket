@@ -37,11 +37,17 @@ const PortfolioPage: NextPageWithLayout = () => {
       return;
     }
 
+    if (!requestRecords) {
+      setPositions([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      // Get all Position records from wallet
       const allPositions = await getAllUserPositions(wallet, PREDICTION_MARKET_PROGRAM_ID, requestRecords);
 
       if (allPositions.length === 0) {
