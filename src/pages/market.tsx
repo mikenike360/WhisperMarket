@@ -44,14 +44,6 @@ const MarketPage: NextPageWithLayout = () => {
 
     loadMarketState();
     loadUserPosition();
-    // Poll for updates every 90 seconds, only if no error
-    const interval = setInterval(() => {
-      if (!error && marketId) {
-        loadMarketState();
-        loadUserPosition();
-      }
-    }, 90000);
-    return () => clearInterval(interval);
   }, [error, marketId]);
 
   useEffect(() => {

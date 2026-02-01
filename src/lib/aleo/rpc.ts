@@ -1,13 +1,14 @@
 import { CREDITS_PROGRAM_ID, PREDICTION_MARKET_PROGRAM_ID, MarketState, UserPosition } from '@/types';
 import { getFeeForFunction } from '@/utils/feeCalculator';
 import { findWalletAdapter, hasRequestRecords, isIntentOnlyWallet } from './wallet/adapter';
-import { createTransactionOptions, createIntentTransactionOptions, RECORD_TYPE_CREDITS, RECORD_TYPE_POSITION } from './wallet/tx';
+import { createTransactionOptions, createIntentTransactionOptions, RECORD_PLACEHOLDER_INTENT } from './wallet/tx';
 import {
   getRecordId,
   areRecordsDistinct,
   extractRecordValue,
   filterUnspentRecords,
   findDistinctRecords,
+  pickRecordForAmount,
 } from './wallet/records';
 import { client } from './rpc/client';
 import {
@@ -32,6 +33,37 @@ import {
   type MarketRegistryEntry,
 } from './marketRegistry';
 
+/** Log transaction options before and after send to detect if the wallet mutates them. */
+async function executeTransactionWithLog(
+  walletAdapter: { executeTransaction: (opts: unknown) => Promise<unknown> },
+  transactionOptions: { program?: string; function?: string; inputs?: unknown[]; fee?: number; recordIndices?: number[]; privateFee?: boolean }
+): Promise<unknown> {
+  const beforeSnapshot = {
+    program: transactionOptions.program,
+    function: transactionOptions.function,
+    inputs: transactionOptions.inputs ? [...transactionOptions.inputs] : [],
+    inputsLength: transactionOptions.inputs?.length,
+    fee: transactionOptions.fee,
+    recordIndices: transactionOptions.recordIndices ? [...(transactionOptions.recordIndices)] : undefined,
+    privateFee: transactionOptions.privateFee,
+  };
+  console.log('[Transaction] BEFORE send to wallet:', beforeSnapshot);
+
+  const result = await walletAdapter.executeTransaction(transactionOptions);
+
+  console.log('[Transaction] AFTER send to wallet (options object now):', {
+    program: transactionOptions.program,
+    function: transactionOptions.function,
+    inputs: transactionOptions.inputs,
+    inputsLength: transactionOptions.inputs?.length,
+    fee: transactionOptions.fee,
+    recordIndices: transactionOptions.recordIndices,
+    privateFee: transactionOptions.privateFee,
+  });
+
+  return result;
+}
+
 export { CREDITS_PROGRAM_ID } from '@/types';
 export { client, getClient } from './rpc/client';
 export {
@@ -55,6 +87,7 @@ export {
   clearMarketRegistryCache,
   type MarketRegistryEntry,
 } from './marketRegistry';
+export { normalizeCreditsRecordInput, redactForLog } from './wallet/recordSanitizer';
 
 /**
  * Discover markets by querying init transactions and extracting market IDs
@@ -470,7 +503,7 @@ export async function joinRecords(
     [0, 1] // record indices
   );
 
-  const result = await walletAdapter.executeTransaction(transactionOptions);
+  const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as { transactionId?: string };
   return result.transactionId;
 }
 
@@ -532,8 +565,7 @@ async function splitRecordForFee(
     throw new Error('Wallet adapter does not support transaction execution');
   }
 
-  // Pass record through unchanged; do not stringify. Shield (and other adapters) require
-  // record inputs as the objects returned by requestRecords.
+  // Record is normalized to decrypted string (plaintext) for the adapter, same as Leo wallet.
   const inputs = [
     record,
     `${recipientAddress}.private`,
@@ -550,7 +582,7 @@ async function splitRecordForFee(
     [0] // record index
   );
 
-  const result = await walletAdapter.executeTransaction(transactionOptions);
+  const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as { transactionId?: string };
   return result.transactionId;
 }
 
@@ -632,21 +664,21 @@ export async function initMarket(
     throw new Error('Wallet adapter does not support transaction execution. Please ensure your wallet is connected.');
   }
 
-  // Use requestRecords from hook if provided, otherwise try to find it on wallet object
+  // Use requestRecords from hook if provided, otherwise try to find it on wallet/adapter
   let requestRecordsFn: ((programId: string, decrypt?: boolean) => Promise<any[]>) | null = null;
-  
   if (requestRecords && typeof requestRecords === 'function') {
     requestRecordsFn = requestRecords;
-  } else {
-    // Fallback: try to find requestRecords on wallet object
-    if (wallet) {
-      if (typeof wallet.requestRecords === 'function') {
-        requestRecordsFn = wallet.requestRecords.bind(wallet);
-      } else if (wallet.wallet && typeof wallet.wallet.requestRecords === 'function') {
-        requestRecordsFn = wallet.wallet.requestRecords.bind(wallet.wallet);
-      } else if (wallet.adapter && typeof wallet.adapter.requestRecords === 'function') {
-        requestRecordsFn = wallet.adapter.requestRecords.bind(wallet.adapter);
-      }
+  }
+  if (!requestRecordsFn && wallet) {
+    const adapter = findWalletAdapter(wallet);
+    if (adapter && typeof adapter.requestRecords === 'function') {
+      requestRecordsFn = adapter.requestRecords.bind(adapter);
+    } else if (typeof (wallet as any).requestRecords === 'function') {
+      requestRecordsFn = (wallet as any).requestRecords.bind(wallet);
+    } else if ((wallet as any).wallet && typeof (wallet as any).wallet.requestRecords === 'function') {
+      requestRecordsFn = (wallet as any).wallet.requestRecords.bind((wallet as any).wallet);
+    } else if ((wallet as any).adapter && typeof (wallet as any).adapter.requestRecords === 'function') {
+      requestRecordsFn = (wallet as any).adapter.requestRecords.bind((wallet as any).adapter);
     }
   }
 
@@ -656,39 +688,62 @@ export async function initMarket(
   // init() inputs (0-based): 0=initial_liquidity, 1=bond_amount, 2=fee_bps, 3=metadata_hash, 4=salt, 5=credit_record.
   // If an error says "input #5", it may be 1-based (meaning salt at our index 4) or 0-based (meaning record at our index 5).
 
-  // Shield: when we have records, pass the record object at input 5 so recordToInputForAdapter extracts the ciphertext. If requestRecords fails or returns nothing, fall back to intent path (wallet handles failure).
+  // Shield: fetch records and pass normalized plaintext string; only use intent path when requestRecords unavailable.
   if (isIntentOnlyWallet(wallet)) {
     if (requestRecordsFn) {
+      const feeAmount = getFeeForFunction('init');
+      const requiredMicrocredits = bondAmount + initialLiquidity + feeAmount;
+      let allRecords: unknown[] | null = null;
       try {
-        const allRecords = await requestRecordsFn(CREDITS_PROGRAM_ID, false);
-        if (allRecords?.length > 0) {
-          const unspentRecords = filterUnspentRecords(allRecords);
-          if (unspentRecords.length > 0) {
-            const firstRecord = unspentRecords[0].record;
-            const inputs = [
-              `${initialLiquidity}u64`,
-              `${bondAmount}u64`,
-              `${feeBps}u64`,
-              `${metadataHash}field`,
-              saltField,
-              firstRecord,
-            ];
-            const transactionOptions = createTransactionOptions(
-              PREDICTION_MARKET_PROGRAM_ID,
-              'init',
-              inputs,
-              fee,
-              false,
-              [5]
-            );
-            const result = (await walletAdapter.executeTransaction(transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-            const transactionId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
-            if (transactionId) return String(transactionId).trim();
-          }
-        }
-      } catch (_) {
-        // e.g. UUID not found — fall through to intent path below
+        allRecords = await requestRecordsFn(CREDITS_PROGRAM_ID, true);
+      } catch {
+        allRecords = await requestRecordsFn(CREDITS_PROGRAM_ID, false);
       }
+      if (!allRecords || allRecords.length === 0) {
+        throw new Error(
+          'No credit records returned. Please select a record in the Shield wallet when prompted, or ensure you have credits.aleo records.'
+        );
+      }
+      let unspentRecords = filterUnspentRecords(allRecords);
+      if (unspentRecords.length === 0) {
+        unspentRecords = allRecords.map((r) => ({ record: r, value: 1, id: null } as { record: unknown; value: number; id: string | null }));
+      }
+      const picked = pickRecordForAmount(unspentRecords, requiredMicrocredits);
+      if (!picked) {
+        const totalKnown = unspentRecords.reduce((sum, r) => sum + r.value, 0);
+        const allCiphertext = unspentRecords.every((r) => r.value <= 1);
+        if (!allCiphertext) {
+          throw new Error(
+            `No record with sufficient balance. Need ${(requiredMicrocredits / 1_000_000).toFixed(6)} credits (${requiredMicrocredits} microcredits) including fee; you have ${(totalKnown / 1_000_000).toFixed(6)} credits in unspent records.`
+          );
+        }
+      }
+      const chosenRecord = picked ? picked.record : unspentRecords[0].record;
+      if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_DEBUG_RECORD_INPUTS === 'true') {
+        console.log('[initMarket] Shield record path: using chosenRecord for input #5');
+      }
+      const inputs = [
+        `${initialLiquidity}u64`,
+        `${bondAmount}u64`,
+        `${feeBps}u64`,
+        `${metadataHash}field`,
+        saltField,
+        chosenRecord,
+      ];
+      const transactionOptions = createTransactionOptions(
+        PREDICTION_MARKET_PROGRAM_ID,
+        'init',
+        inputs,
+        fee,
+        false,
+        [5]
+      );
+      const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+      const transactionId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+      if (transactionId) return String(transactionId).trim();
+    }
+    if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_DEBUG_RECORD_INPUTS === 'true') {
+      console.log('[initMarket] Shield intent path: requestRecordsFn unavailable, using placeholder for input #5');
     }
     const inputs = [
       `${initialLiquidity}u64`,
@@ -696,7 +751,7 @@ export async function initMarket(
       `${feeBps}u64`,
       `${metadataHash}field`,
       saltField,
-      RECORD_TYPE_CREDITS,
+      RECORD_PLACEHOLDER_INTENT,
     ];
     const transactionOptions = createIntentTransactionOptions(
       PREDICTION_MARKET_PROGRAM_ID,
@@ -706,7 +761,7 @@ export async function initMarket(
       false,
       [5]
     );
-    const result = (await walletAdapter.executeTransaction(transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+    const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
     const transactionId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
     if (!transactionId) throw new Error('Transaction submitted but no transaction ID returned.');
     return String(transactionId).trim();
@@ -714,13 +769,16 @@ export async function initMarket(
 
   // Intent path for wallets that do not support requestRecords (non-Shield)
   if (!requestRecordsFn || !hasRequestRecords(wallet)) {
+    if (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_DEBUG_RECORD_INPUTS === 'true') {
+      console.log('[initMarket] Intent path: requestRecordsFn=', !!requestRecordsFn, 'hasRequestRecords=', hasRequestRecords(wallet));
+    }
     const inputs = [
       `${initialLiquidity}u64`,
       `${bondAmount}u64`,
       `${feeBps}u64`,
       `${metadataHash}field`,
       saltField,
-      RECORD_TYPE_CREDITS,
+      RECORD_PLACEHOLDER_INTENT,
     ];
     const transactionOptions = createIntentTransactionOptions(
       PREDICTION_MARKET_PROGRAM_ID,
@@ -730,7 +788,7 @@ export async function initMarket(
       false,
       [5]
     );
-    const result = (await walletAdapter.executeTransaction(transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+    const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
     const transactionId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
     if (!transactionId) throw new Error('Transaction submitted but no transaction ID returned.');
     return String(transactionId).trim();
@@ -828,7 +886,7 @@ export async function initMarket(
 
   try {
     type ExecuteResult = { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string; txId?: string; id?: string }; result?: { transactionId?: string; txId?: string; id?: string }; status?: unknown; state?: unknown; pending?: unknown; error?: unknown; message?: unknown; reason?: unknown };
-    const result = (await walletAdapter.executeTransaction(transactionOptions)) as ExecuteResult;
+    const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as ExecuteResult;
     let transactionId = result?.transactionId || result?.txId || result?.id || result?.transaction_id;
     if (!transactionId && result) {
       if (result.data?.transactionId) transactionId = result.data.transactionId;
@@ -852,7 +910,7 @@ export async function initMarket(
     }
     if (error?.message?.includes('parse input') || error?.message?.includes('credits.aleo/credits.record')) {
       throw new Error(
-        `Input parsing failed: ${error.message}. This usually means the record format is incorrect. Check that Shield wallet records have recordCiphertext property.`
+        `Input parsing failed: ${error.message}. This usually means the record format is incorrect. Pass the decrypted record as a string (plaintext), like the Leo wallet.`
       );
     }
     if (error.message && (error.message.includes('double') || error.message.includes('already spent') || error.message.includes('consumed'))) {
@@ -888,9 +946,9 @@ export async function openPositionPrivate(
   const fee = getFeeForFunction('open_position_private');
 
   if (creditRecord == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet)) {
-    const inputs = [`${marketId}field`, RECORD_TYPE_CREDITS, `${amountU64}u64`, `${statusHint}u8`];
+    const inputs = [`${marketId}field`, RECORD_PLACEHOLDER_INTENT, `${amountU64}u64`, `${statusHint}u8`];
     const opts = createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'open_position_private', inputs, fee, false, [1]);
-    const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+    const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
     const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
     return String(txId).trim();
@@ -898,7 +956,7 @@ export async function openPositionPrivate(
 
   const inputs = [`${marketId}field`, creditRecord, `${amountU64}u64`, `${statusHint}u8`];
   const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'open_position_private', inputs, fee, true, [1]);
-  const result = await walletAdapter.executeTransaction(transactionOptions);
+  const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
   const txId = result?.transactionId || (result as any)?.txId || (result as any)?.id || (result as any)?.transaction_id || (result as any)?.data?.transactionId || (result as any)?.result?.transactionId;
   if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
   return String(txId).trim();
@@ -928,9 +986,9 @@ export async function depositPrivate(
   const fee = getFeeForFunction('deposit_private');
 
   if (creditRecord == null || existingPosition == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet)) {
-    const inputs = [`${marketId}field`, RECORD_TYPE_CREDITS, `${amountU64}u64`, RECORD_TYPE_POSITION, `${statusHint}u8`];
+    const inputs = [`${marketId}field`, RECORD_PLACEHOLDER_INTENT, `${amountU64}u64`, RECORD_PLACEHOLDER_INTENT, `${statusHint}u8`];
     const opts = createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'deposit_private', inputs, fee, false, [1, 3]);
-    const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+    const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
     const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
     return String(txId).trim();
@@ -938,7 +996,7 @@ export async function depositPrivate(
 
   const inputs = [`${marketId}field`, creditRecord, `${amountU64}u64`, existingPosition, `${statusHint}u8`];
   const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'deposit_private', inputs, fee, true, [1, 3]);
-  const result = await walletAdapter.executeTransaction(transactionOptions);
+  const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
   const txId = result?.transactionId || (result as any)?.txId || (result as any)?.id || (result as any)?.transaction_id || (result as any)?.data?.transactionId || (result as any)?.result?.transactionId;
   if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
   return String(txId).trim();
@@ -966,7 +1024,7 @@ export async function swapCollateralForYesPrivate(
   const fee = getFeeForFunction('swap_collateral_for_yes_private');
   const inputs = [
     `${marketId}field`,
-    existingPosition ?? RECORD_TYPE_POSITION,
+    existingPosition ?? RECORD_PLACEHOLDER_INTENT,
     `${collateralIn}u64`,
     `${minYesOut}u128`,
     `${yesReserve}u128`,
@@ -979,7 +1037,7 @@ export async function swapCollateralForYesPrivate(
   const opts = useIntent
     ? createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_yes_private', inputs, fee, false, [1])
     : createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_yes_private', inputs, fee, true, [1]);
-  const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
   const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
   if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
   return String(txId).trim();
@@ -1007,7 +1065,7 @@ export async function swapCollateralForNoPrivate(
   const fee = getFeeForFunction('swap_collateral_for_no_private');
   const inputs = [
     `${marketId}field`,
-    existingPosition ?? RECORD_TYPE_POSITION,
+    existingPosition ?? RECORD_PLACEHOLDER_INTENT,
     `${collateralIn}u64`,
     `${minNoOut}u128`,
     `${yesReserve}u128`,
@@ -1020,7 +1078,7 @@ export async function swapCollateralForNoPrivate(
   const opts = useIntent
     ? createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_no_private', inputs, fee, false, [1])
     : createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_no_private', inputs, fee, true, [1]);
-  const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
   const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
   if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
   return String(txId).trim();
@@ -1042,12 +1100,12 @@ export async function mergeTokensPrivate(
   if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
   const fee = getFeeForFunction('merge_tokens_private');
-  const inputs = [`${marketId}field`, existingPosition ?? RECORD_TYPE_POSITION, `${mergeAmount}u128`, `${minCollateralOut}u64`];
+  const inputs = [`${marketId}field`, existingPosition ?? RECORD_PLACEHOLDER_INTENT, `${mergeAmount}u128`, `${minCollateralOut}u64`];
   const useIntent = existingPosition == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet);
   const opts = useIntent
     ? createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, false, [1])
     : createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, true, [1]);
-  const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
   const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
   if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
   return String(txId).trim();
@@ -1068,12 +1126,12 @@ export async function withdrawPrivate(
   if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
   const fee = getFeeForFunction('withdraw_private');
-  const inputs = [`${marketId}field`, existingPosition ?? RECORD_TYPE_POSITION, `${amount}u64`];
+  const inputs = [`${marketId}field`, existingPosition ?? RECORD_PLACEHOLDER_INTENT, `${amount}u64`];
   const useIntent = existingPosition == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet);
   const opts = useIntent
     ? createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_private', inputs, fee, false, [1])
     : createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_private', inputs, fee, true, [1]);
-  const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
   const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
   if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
   return String(txId).trim();
@@ -1094,12 +1152,12 @@ export async function redeemPrivate(
   if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
   const fee = getFeeForFunction('redeem_private');
-  const inputs = [`${marketId}field`, existingPosition ?? RECORD_TYPE_POSITION, outcome ? 'true' : 'false'];
+  const inputs = [`${marketId}field`, existingPosition ?? RECORD_PLACEHOLDER_INTENT, outcome ? 'true' : 'false'];
   const useIntent = existingPosition == null || isIntentOnlyWallet(wallet) || !hasRequestRecords(wallet);
   const opts = useIntent
     ? createIntentTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, false, [1])
     : createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, true, [1]);
-  const result = (await walletAdapter.executeTransaction(opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
   const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
   if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
   return String(txId).trim();
@@ -1137,7 +1195,7 @@ export async function resolveMarket(
     true // payFeesPrivately
   );
 
-  const result = await walletAdapter.executeTransaction(transactionOptions);
+  const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
   return result.transactionId;
 }
 
@@ -1170,7 +1228,7 @@ export async function pause(
     true // payFeesPrivately
   );
 
-  const result = await walletAdapter.executeTransaction(transactionOptions);
+  const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
   return result.transactionId;
 }
 
@@ -1203,7 +1261,7 @@ export async function unpause(
     true // payFeesPrivately
   );
 
-  const result = await walletAdapter.executeTransaction(transactionOptions);
+  const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
   return result.transactionId;
 }
 

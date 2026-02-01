@@ -1,7 +1,7 @@
 // _app.tsx
 import type { AppProps } from 'next/app';
 import type { NextPageWithLayout } from '@/types';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Script from 'next/script';
 import { Hydrate, QueryClient, QueryClientProvider } from 'react-query';
@@ -62,6 +62,20 @@ type AppPropsWithLayout = AppProps & {
 function CustomApp({ Component, pageProps }: AppPropsWithLayout) {
   const [queryClient] = useState(() => new QueryClient());
   const getLayout = Component.getLayout ?? ((page) => page);
+
+  // Quiet Shield wallet adapter console.debug so [Transaction] logs are easy to spot
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => {
+      const msg = String(args[0] ?? '');
+      if (msg.includes('Shield')) return;
+      originalDebug.apply(console, args);
+    };
+    return () => {
+      console.debug = originalDebug;
+    };
+  }, []);
 
   return (
     <>
