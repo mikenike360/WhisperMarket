@@ -64,6 +64,64 @@ async function executeTransactionWithLog(
   return result;
 }
 
+/** Recursively find first string in obj that starts with "at" (Provable tx id). */
+function findAtIdInObject(obj: unknown, depth: number): string | null {
+  if (depth <= 0 || obj == null) return null;
+  if (typeof obj === 'string') {
+    const s = obj.trim();
+    return s.startsWith('at') ? s : null;
+  }
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const found = findAtIdInObject(item, depth - 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof obj === 'object') {
+    const o = obj as Record<string, unknown>;
+    for (const key of ['id', 'transactionId', 'txId', 'transaction_id']) {
+      const found = findAtIdInObject(o[key], depth - 1);
+      if (found) return found;
+    }
+    for (const v of Object.values(o)) {
+      const found = findAtIdInObject(v, depth - 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/** Provable Explorer expects transaction IDs in bech32 format (prefix "at"). Prefer "at" id; fallback to any id so the popup always shows. */
+function extractTransactionId(result: unknown): string | null {
+  if (result == null) return null;
+  const candidates: string[] = [];
+  const r = result as Record<string, unknown>;
+  for (const key of ['transactionId', 'id', 'txId', 'transaction_id']) {
+    const v = r[key];
+    if (typeof v === 'string' && v.trim()) candidates.push(v.trim());
+  }
+  const data = r.data as Record<string, unknown> | undefined;
+  if (data && typeof data === 'object') {
+    for (const key of ['transactionId', 'id', 'txId', 'transaction_id']) {
+      const v = data[key];
+      if (typeof v === 'string' && v.trim()) candidates.push(v.trim());
+    }
+  }
+  const nested = r.result as Record<string, unknown> | undefined;
+  if (nested && typeof nested === 'object') {
+    for (const key of ['transactionId', 'id', 'txId', 'transaction_id']) {
+      const v = nested[key];
+      if (typeof v === 'string' && v.trim()) candidates.push(v.trim());
+    }
+  }
+  const atId = candidates.find((s) => s.startsWith('at'));
+  if (atId) return atId;
+  const atIdDeep = findAtIdInObject(result, 8);
+  if (atIdDeep) return atIdDeep;
+  return candidates[0] ?? null;
+}
+
 /** Resolve requestRecords from optional param or wallet (adapter, wallet, nested paths). */
 function resolveRequestRecordsFn(
   wallet: any,
@@ -573,8 +631,10 @@ export async function joinRecords(
     { forShield: isIntentOnlyWallet(wallet) }
   );
 
-  const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as { transactionId?: string };
-  return result.transactionId;
+  const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
+  const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction failed: No transaction ID returned.');
+  return txId;
 }
 
 /**
@@ -653,8 +713,10 @@ async function splitRecordForFee(
     { forShield: isIntentOnlyWallet(wallet) }
   );
 
-  const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as { transactionId?: string };
-  return result.transactionId;
+  const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
+  const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction failed: No transaction ID returned.');
+  return txId;
 }
 
 /**
@@ -788,9 +850,9 @@ export async function initMarket(
           [5],
           { forShield: true }
         );
-        const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-        const transactionId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
-        if (transactionId) return String(transactionId).trim();
+        const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
+        const transactionId = extractTransactionId(result);
+        if (transactionId) return transactionId;
       }
     }
     throw new Error('Unable to fetch credit records. Ensure your wallet supports requestRecords and you have credits.');
@@ -893,19 +955,10 @@ export async function initMarket(
   }
 
   try {
-    type ExecuteResult = { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string; txId?: string; id?: string }; result?: { transactionId?: string; txId?: string; id?: string }; status?: unknown; state?: unknown; pending?: unknown; error?: unknown; message?: unknown; reason?: unknown };
-    const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as ExecuteResult;
-    let transactionId = result?.transactionId || result?.txId || result?.id || result?.transaction_id;
-    if (!transactionId && result) {
-      if (result.data?.transactionId) transactionId = result.data.transactionId;
-      if (result.data?.txId) transactionId = result.data.txId;
-      if (result.data?.id) transactionId = result.data.id;
-      if (result.result?.transactionId) transactionId = result.result.transactionId;
-      if (result.result?.txId) transactionId = result.result.txId;
-      if (result.result?.id) transactionId = result.result.id;
-    }
+    const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
+    const transactionId = extractTransactionId(result);
     if (!transactionId) throw new Error('Transaction submitted but no transaction ID returned. Please check your wallet for transaction status.');
-    return String(transactionId).trim();
+    return transactionId;
   } catch (error: any) {
     if (error?.message?.includes('prove') || error?.message?.includes('proof')) {
       throw new Error(`Proving failed: ${error.message}. Check inputs and record validity.`);
@@ -958,9 +1011,9 @@ export async function openPositionPrivate(
     const inputs = [`${marketId}field`, creditRecord, `${amountU64}u64`, `${statusHint}u8`];
     const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'open_position_private', inputs, fee, true, [1], { forShield: false });
     const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
-    const txId = result?.transactionId || (result as any)?.txId || (result as any)?.id || (result as any)?.transaction_id || (result as any)?.data?.transactionId || (result as any)?.result?.transactionId;
+    const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
-    return String(txId).trim();
+    return txId;
   }
 
   if (isIntentOnlyWallet(wallet)) {
@@ -982,9 +1035,9 @@ export async function openPositionPrivate(
         const chosenRecord = picked ? picked.record : unspentRecords[0].record;
         const inputs = [`${marketId}field`, chosenRecord, `${amountU64}u64`, `${statusHint}u8`];
         const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'open_position_private', inputs, fee, false, [1], { forShield: true });
-        const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-        const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
-        if (txId) return String(txId).trim();
+        const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
+        const txId = extractTransactionId(result);
+        if (txId) return txId;
       }
     }
     throw new Error('No credit record available. Refresh records or ensure your wallet supports requestRecords.');
@@ -1021,9 +1074,9 @@ export async function depositPrivate(
     const inputs = [`${marketId}field`, creditRecord, `${amountU64}u64`, existingPosition, `${statusHint}u8`];
     const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'deposit_private', inputs, fee, true, [1, 3], { forShield: false });
     const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
-    const txId = result?.transactionId || (result as any)?.txId || (result as any)?.id || (result as any)?.transaction_id || (result as any)?.data?.transactionId || (result as any)?.result?.transactionId;
+    const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
-    return String(txId).trim();
+    return txId;
   }
 
   if (isIntentOnlyWallet(wallet)) {
@@ -1051,7 +1104,7 @@ export async function depositPrivate(
           const inputs = [`${marketId}field`, chosenCredit, `${amountU64}u64`, positionRecord, `${statusHint}u8`];
           const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'deposit_private', inputs, fee, false, [1, 3], { forShield: true });
           const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-          const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+          const txId = extractTransactionId(result);
           if (txId) return String(txId).trim();
         }
       }
@@ -1111,7 +1164,7 @@ export async function swapCollateralForYesPrivate(
       ];
       const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_yes_private', inputs, fee, false, [1], { forShield: isIntentOnlyWallet(wallet) });
       const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-      const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+      const txId = extractTransactionId(result);
       if (txId) return String(txId).trim();
     }
     // When wallet returned records but none matched: fall through to use existingPosition from page if available.
@@ -1131,9 +1184,9 @@ export async function swapCollateralForYesPrivate(
     ];
     const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_yes_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet) });
     const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-    const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+    const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
-    return String(txId).trim();
+    return txId;
   }
 
   throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
@@ -1188,7 +1241,7 @@ export async function swapCollateralForNoPrivate(
       ];
       const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_no_private', inputs, fee, false, [1], { forShield: isIntentOnlyWallet(wallet) });
       const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-      const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+      const txId = extractTransactionId(result);
       if (txId) return String(txId).trim();
     }
     // When wallet returned records but none matched: fall through to use existingPosition from page if available.
@@ -1208,9 +1261,9 @@ export async function swapCollateralForNoPrivate(
     ];
     const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_no_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet) });
     const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-    const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+    const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
-    return String(txId).trim();
+    return txId;
   }
 
   throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
@@ -1238,9 +1291,9 @@ export async function mergeTokensPrivate(
     const inputs = [`${marketId}field`, existingPosition, `${mergeAmount}u128`, `${minCollateralOut}u64`];
     const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, true, [1], { forShield: false });
     const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-    const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+    const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
-    return String(txId).trim();
+    return txId;
   }
 
   if (isIntentOnlyWallet(wallet)) {
@@ -1258,7 +1311,7 @@ export async function mergeTokensPrivate(
           const inputs = [`${marketId}field`, positionRecord, `${mergeAmount}u128`, `${minCollateralOut}u64`];
           const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, false, [1], { forShield: true });
           const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-          const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+          const txId = extractTransactionId(result);
           if (txId) return String(txId).trim();
         }
       }
@@ -1272,9 +1325,9 @@ export async function mergeTokensPrivate(
   const inputs = [`${marketId}field`, existingPosition, `${mergeAmount}u128`, `${minCollateralOut}u64`];
   const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet) });
   const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-  const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
-  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
-  return String(txId).trim();
+  const txId = extractTransactionId(result);
+    if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+    return txId;
 }
 
 /**
@@ -1298,9 +1351,9 @@ export async function withdrawPrivate(
     const inputs = [`${marketId}field`, existingPosition, `${amount}u64`];
     const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_private', inputs, fee, true, [1], { forShield: false });
     const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-    const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+    const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
-    return String(txId).trim();
+    return txId;
   }
 
   if (isIntentOnlyWallet(wallet)) {
@@ -1318,7 +1371,7 @@ export async function withdrawPrivate(
           const inputs = [`${marketId}field`, positionRecord, `${amount}u64`];
           const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_private', inputs, fee, false, [1], { forShield: true });
           const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-          const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+          const txId = extractTransactionId(result);
           if (txId) return String(txId).trim();
         }
       }
@@ -1332,9 +1385,9 @@ export async function withdrawPrivate(
   const inputs = [`${marketId}field`, existingPosition, `${amount}u64`];
   const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet) });
   const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-  const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
-  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
-  return String(txId).trim();
+  const txId = extractTransactionId(result);
+    if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+    return txId;
 }
 
 /**
@@ -1358,9 +1411,9 @@ export async function redeemPrivate(
     const inputs = [`${marketId}field`, existingPosition, outcome ? 'true' : 'false'];
     const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, true, [1], { forShield: false });
     const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-    const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+    const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
-    return String(txId).trim();
+    return txId;
   }
 
   if (isIntentOnlyWallet(wallet)) {
@@ -1378,7 +1431,7 @@ export async function redeemPrivate(
           const inputs = [`${marketId}field`, positionRecord, outcome ? 'true' : 'false'];
           const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, false, [1], { forShield: true });
           const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-          const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
+          const txId = extractTransactionId(result);
           if (txId) return String(txId).trim();
         }
       }
@@ -1392,9 +1445,9 @@ export async function redeemPrivate(
   const inputs = [`${marketId}field`, existingPosition, outcome ? 'true' : 'false'];
   const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet) });
   const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-  const txId = result?.transactionId || result?.txId || result?.id || result?.transaction_id || result?.data?.transactionId || result?.result?.transactionId;
-  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
-  return String(txId).trim();
+  const txId = extractTransactionId(result);
+    if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+    return txId;
 }
 
 /**
@@ -1430,7 +1483,9 @@ export async function resolveMarket(
   );
 
   const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
-  return result.transactionId;
+  const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return txId;
 }
 
 /**
@@ -1463,7 +1518,9 @@ export async function pause(
   );
 
   const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
-  return result.transactionId;
+  const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return txId;
 }
 
 /**
@@ -1496,7 +1553,9 @@ export async function unpause(
   );
 
   const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
-  return result.transactionId;
+  const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return txId;
 }
 
 /**

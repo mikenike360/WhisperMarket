@@ -10,9 +10,14 @@ export const CURRENT_NETWORK: Network = Network.TESTNET;
 //MAINNET_RPC_URL=https://mainnet.aleorpc.com
 export const CURRENT_RPC_URL = "https://testnetbeta.aleorpc.com";
 
-// AleoScan API URLs for mapping reads (more reliable than JSON-RPC)
-export const ALEOSCAN_API_URL = "https://testnet.aleoscan.io/api";
-export const ALEOSCAN_MAINNET_API_URL = "https://api.aleoscan.io";
+// Provable API v2 for mapping reads (replaces AleoScan)
+// Base URL: https://api.provable.com/v2/{network}
+const PROVABLE_NETWORK_MAP: Partial<Record<Network, string>> = {
+  [Network.MAINNET]: 'mainnet',
+  [Network.TESTNET]: 'testnet',
+  [Network.CANARY]: 'canary',
+};
+export const PROVABLE_API_BASE_URL = `https://api.provable.com/v2/${PROVABLE_NETWORK_MAP[CURRENT_NETWORK] ?? 'testnet'}`;
 
 export type NextPageWithLayout<P = {}> = NextPage<P> & {
   authorization?: boolean;

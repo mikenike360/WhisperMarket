@@ -1,11 +1,11 @@
 /**
  * Read-only chain queries: mappings, program fetch, tx status, block height.
  * Single source of truth for RPC client is ../client.
- * Mapping reads use AleoScan API (more reliable), transaction operations use JSON-RPC.
+ * Mapping reads use Provable API v2, transaction operations use JSON-RPC.
  */
 import { client, getClient } from './client';
 import { PREDICTION_MARKET_PROGRAM_ID, CURRENT_RPC_URL } from '@/types';
-import { getMappingValueFromAleoScan } from './aleoscanClient';
+import { getMappingValueFromProvable } from './provableClient';
 
 export async function getMarketInitTransactions(
   page = 0,
@@ -96,18 +96,17 @@ export async function fetchMarketMappingValue(
   key: string
 ): Promise<number> {
   try {
-    // Use AleoScan API for mapping reads
-    const value = await getMappingValueFromAleoScan(
+    const value = await getMappingValueFromProvable(
       PREDICTION_MARKET_PROGRAM_ID,
       mappingName,
       `${key}field`
     );
-    
+
     if (value === null) {
       throw new Error(`Mapping ${mappingName} not found or program not deployed`);
     }
-    
-    // AleoScan returns values with type suffixes like "1u64" or quoted strings
+
+    // Provable returns values with type suffixes like "1u64" or quoted strings
     // Extract the numeric part by removing quotes, type suffixes, and whitespace
     let cleanValue = String(value).trim();
     // Remove surrounding quotes if present
@@ -134,17 +133,16 @@ export async function fetchMarketMappingValueString(
   key: string
 ): Promise<string> {
   try {
-    // Use AleoScan API for mapping reads
-    const value = await getMappingValueFromAleoScan(
+    const value = await getMappingValueFromProvable(
       PREDICTION_MARKET_PROGRAM_ID,
       mappingName,
       `${key}field`
     );
-    
+
     if (value === null) {
       throw new Error(`Mapping ${mappingName} not found or program not deployed`);
     }
-    
+
     return value;
   } catch (error: unknown) {
     throw error;
@@ -157,16 +155,15 @@ export async function fetchMarketMappingValueString(
  */
 export async function getTotalMarketsCount(): Promise<number> {
   try {
-    // Use AleoScan API for mapping reads
-    const value = await getMappingValueFromAleoScan(
+    const value = await getMappingValueFromProvable(
       PREDICTION_MARKET_PROGRAM_ID,
       'total_markets',
       '0u64' // total_markets[0u64] stores the count
     );
-    
+
     if (value === null) return 0;
 
-    // AleoScan returns values with type suffixes like "1u64" or quoted strings like '"1u64"'
+    // Provable returns values with type suffixes like "1u64" or quoted strings
     // Extract the numeric part by removing quotes, type suffixes (u64, u128, field, etc.), and whitespace
     let cleanValue = String(value).trim();
     // Remove surrounding quotes if present
@@ -195,16 +192,15 @@ export async function getTotalMarketsCount(): Promise<number> {
  */
 export async function getMarketIdAtIndex(index: number): Promise<string | null> {
   try {
-    // Use AleoScan API for mapping reads
-    const value = await getMappingValueFromAleoScan(
+    const value = await getMappingValueFromProvable(
       PREDICTION_MARKET_PROGRAM_ID,
       'market_index',
       `${index}u64`
     );
-    
+
     if (value === null) return null;
-    
-    // AleoScan returns values with type suffixes like "5876945607271027451885340988094905867884195093098210518443342717670717944265field"
+
+    // Provable returns values with type suffixes like "5876945607271027451885340988094905867884195093098210518443342717670717944265field"
     // or quoted strings like '"5876945607271027451885340988094905867884195093098210518443342717670717944265field"'
     let cleanValue = String(value).trim();
     // Remove surrounding quotes if present
@@ -229,8 +225,7 @@ export async function getMarketIdAtIndex(index: number): Promise<string | null> 
  */
 export async function fetchMarketCreator(marketId: string): Promise<string | null> {
   try {
-    // Use AleoScan API for mapping reads
-    const value = await getMappingValueFromAleoScan(
+    const value = await getMappingValueFromProvable(
       PREDICTION_MARKET_PROGRAM_ID,
       'market_creator',
       `${marketId}field`

@@ -84,7 +84,7 @@ The application will be available at `http://localhost:3000`
 │   │   ├── aleo/     # RPC, wallet, records, market registry
 │   │   └── supabase.ts
 │   ├── pages/        # Next.js pages (index, markets, market, portfolio, admin)
-│   │   └── api/      # RPC and AleoScan proxy endpoints
+│   │   └── api/      # RPC and Provable API proxy endpoints
 │   ├── services/     # Market metadata (e.g. Supabase)
 │   ├── layouts/      # App and dashboard layouts
 │   ├── hooks/        # Custom React hooks
@@ -135,7 +135,7 @@ flowchart TB
   end
 
   subgraph aleo["Aleo network"]
-    RPC[RPC / AleoScan API]
+    RPC[RPC / Provable API]
     Chain[Blockchain]
     Program[Leo program\nwhisper_market.aleo]
   end
@@ -156,7 +156,7 @@ flowchart TB
 
 - **User → Frontend:** Opens the app in the browser; sees markets, portfolio, create market, redeem, admin.
 - **Frontend ↔ Wallet:** User connects wallet; app requests private credit records and builds transactions; wallet signs and submits (with private fees).
-- **Frontend → RPC / Blockchain:** App reads public state (market IDs, resolution, pool stats) via RPC or AleoScan; transactions are submitted through the wallet and executed on-chain.
+- **Frontend → RPC / Blockchain:** App reads public state (market IDs, resolution, pool stats) via RPC and Provable API; transactions are submitted through the wallet and executed on-chain.
 - **Blockchain → Leo program:** Transactions run the program (init, deposit, swap, redeem, resolve, etc.); private inputs/outputs stay encrypted.
 - **Frontend ↔ Supabase:** Optional: app reads or writes market metadata (question text, descriptions) from Supabase; on-chain state remains the source of truth for existence and resolution.
 
