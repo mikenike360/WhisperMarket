@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { useTransaction } from '@/contexts/TransactionContext';
 import { client } from '@/lib/aleo/rpc/client';
 
-const EXPLORER_BASE = 'https://testnet.aleoscan.io/transaction';
+/** Provable Explorer — used for transaction links; Provable API used for mapping reads. */
+const PROVABLE_EXPLORER_TRANSACTION = 'https://testnet.explorer.provable.com/transaction';
 
 function truncateId(id: string, head = 8, tail = 4): string {
   if (!id || id.length <= head + tail) return id;
@@ -158,7 +159,7 @@ export function TransactionTracker() {
                   {copyId === tx.id ? 'Copied' : 'Copy'}
                 </button>
                 <a
-                  href={`${EXPLORER_BASE}/${tx.id}`}
+                  href={`${PROVABLE_EXPLORER_TRANSACTION}/${tx.id}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="link link-primary link-hover text-xs"

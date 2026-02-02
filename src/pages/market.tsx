@@ -13,7 +13,7 @@ import { MarketStats } from '@/components/market/MarketStats';
 import { DepositSection } from '@/components/market/DepositSection';
 import { BuyForm } from '@/components/market/BuyForm';
 import { StatusBanner } from '@/components/market/StatusBanner';
-import { getMarketState, getAllUserPositions } from '@/lib/aleo/rpc';
+import { getMarketState, getAllUserPositions, clearMarketStateCache } from '@/lib/aleo/rpc';
 import { PREDICTION_MARKET_PROGRAM_ID, UserPosition } from '@/types';
 import { getMarketMetadata } from '@/services/marketMetadata';
 import { useTransaction } from '@/contexts/TransactionContext';
@@ -106,6 +106,7 @@ const MarketPage: NextPageWithLayout = () => {
     addTransaction({ id: txId, label: label ?? 'Transaction' });
     setTransactionId(txId);
     setDismissedTxId(null);
+    clearMarketStateCache();
     setTimeout(() => {
       loadMarketState();
       loadUserPosition();
@@ -115,6 +116,7 @@ const MarketPage: NextPageWithLayout = () => {
 
   const handleRefreshRecords = async () => {
     setRefreshingRecords(true);
+    clearMarketStateCache();
     try {
       await loadUserPosition();
       await loadMarketState();
@@ -229,18 +231,38 @@ const MarketPage: NextPageWithLayout = () => {
         </div>
 
         {transactionId && dismissedTxId !== transactionId && (
-          <div className="alert alert-success mb-4 flex items-center justify-between gap-4">
-            <span>Transaction submitted: {transactionId}</span>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm btn-circle"
-              onClick={() => setDismissedTxId(transactionId ?? null)}
-              aria-label="Dismiss"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+          <div className="alert alert-success mb-4 flex items-center justify-between gap-4 flex-wrap">
+            <span className="flex items-center gap-2 flex-wrap">
+              <span>Transaction submitted:</span>
+              <a
+                href={`https://testnet.explorer.provable.com/transaction/${transactionId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link link-hover font-mono text-sm break-all"
+              >
+                {transactionId.slice(0, 12)}…
+              </a>
+            </span>
+            <div className="flex items-center gap-2">
+              <a
+                href={`https://testnet.explorer.provable.com/transaction/${transactionId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-ghost btn-sm"
+              >
+                View in Explorer
+              </a>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-circle"
+                onClick={() => setDismissedTxId(transactionId ?? null)}
+                aria-label="Dismiss"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
         )}
 

@@ -4,7 +4,7 @@ import { NextSeo } from 'next-seo';
 import Layout from '@/layouts/_layout';
 import { useRouter } from 'next/router';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
-import { getMarketState, discoverMarketsFromChain, getAllMarkets, clearMarketRegistryCache, MarketRegistryEntry } from '@/lib/aleo/rpc';
+import { getMarketState, discoverMarketsFromChain, getAllMarkets, clearMarketRegistryCache, clearMarketStateCache, MarketRegistryEntry } from '@/lib/aleo/rpc';
 import { MarketState, MarketMetadata } from '@/types';
 import { calculatePriceFromReserves } from '@/utils/positionHelpers';
 import { toCredits } from '@/utils/credits';
@@ -190,6 +190,7 @@ const MarketsPage: NextPageWithLayout = () => {
     if (txId) addTransaction({ id: txId, label: 'Create market' });
     setShowCreateModal(false);
     clearMarketRegistryCache();
+    clearMarketStateCache();
   };
 
   const handleMarketClick = (marketId: string) => {
@@ -230,7 +231,11 @@ const MarketsPage: NextPageWithLayout = () => {
           <div className="flex gap-2 shrink-0">
             <button
               className="btn btn-ghost btn-sm sm:btn-md gap-2"
-              onClick={loadMarkets}
+              onClick={() => {
+                clearMarketRegistryCache();
+                clearMarketStateCache();
+                loadMarkets();
+              }}
               disabled={loading || discovering}
               title="Refresh markets list"
             >
