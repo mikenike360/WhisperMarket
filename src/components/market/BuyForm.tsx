@@ -4,6 +4,7 @@ import {
   swapCollateralForYesPrivate,
   swapCollateralForNoPrivate,
 } from '@/lib/aleo/rpc';
+import { isIntentOnlyWallet } from '@/lib/aleo/wallet/adapter';
 import { calculateSwapOutput } from '@/utils/positionHelpers';
 import { toMicrocredits, toCredits } from '@/utils/credits';
 import { MarketState, UserPosition } from '@/types';
@@ -16,6 +17,8 @@ interface BuyFormProps {
   isOpen: boolean;
   isPaused: boolean;
   onTransactionSubmitted?: (txId: string, label?: string) => void;
+  /** Pass from parent so Shield/wallet can fetch and pass position record when buying shares. */
+  requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>;
 }
 
 const SLIPPAGE_TOLERANCE = 0.01; // 1% slippage tolerance
@@ -28,8 +31,10 @@ export const BuyForm: React.FC<BuyFormProps> = ({
   isOpen,
   isPaused,
   onTransactionSubmitted,
+  requestRecords: requestRecordsProp,
 }) => {
-  const { publicKey, wallet, address, requestRecords } = useWallet();
+  const { publicKey, wallet, address, requestRecords: requestRecordsHook } = useWallet();
+  const requestRecords = requestRecordsProp ?? requestRecordsHook;
   const userAddress = publicKey || address;
   const [amount, setAmount] = useState<string>('');
   const [side, setSide] = useState<'yes' | 'no'>('yes');
@@ -93,19 +98,10 @@ export const BuyForm: React.FC<BuyFormProps> = ({
     setError(null);
 
     try {
-      if (!requestRecords) {
-        throw new Error('Wallet does not support record access. Please use a wallet that supports viewing records.');
-      }
+      // Use the position record when available (from parent state). For Leo we have it after load; for Shield we use it when the page has it (e.g. after deposit + refresh or after loadUserPosition).
+      const positionRecord = userPositionRecord ?? undefined;
 
-      if (!userPosition) {
-        throw new Error('No position found. Add collateral first using the section above.');
-      }
-
-      if (!userPositionRecord) {
-        throw new Error('Position record not found in wallet.');
-      }
-
-      if (userPosition.collateralAvailable < buyMicrocredits) {
+      if (requestRecords && !isIntentOnlyWallet(wallet) && userPosition && userPosition.collateralAvailable < buyMicrocredits) {
         throw new Error(
           `Insufficient available collateral. Available: ${toCredits(userPosition.collateralAvailable).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits`
         );
@@ -127,26 +123,28 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           wallet,
           userAddress,
           marketId,
-          userPositionRecord,
+          positionRecord,
           buyMicrocredits,
           minOutput,
           marketState.yesReserve,
           marketState.noReserve,
           marketState.feeBps,
-          0
+          0,
+          requestRecords ?? undefined
         );
       } else {
         txId = await swapCollateralForNoPrivate(
           wallet,
           userAddress,
           marketId,
-          userPositionRecord,
+          positionRecord,
           buyMicrocredits,
           minOutput,
           marketState.yesReserve,
           marketState.noReserve,
           marketState.feeBps,
-          0
+          0,
+          requestRecords ?? undefined
         );
       }
 
@@ -173,9 +171,14 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           </div>
         )}
 
-        {!hasPosition && (
+        {requestRecords && !isIntentOnlyWallet(wallet) && !hasPosition && (
           <div className="alert alert-info mb-4 text-sm">
             <span>Add collateral in the section above first, then come back to buy shares.</span>
+          </div>
+        )}
+        {(!requestRecords || isIntentOnlyWallet(wallet)) && (
+          <div className="alert alert-info mb-4 text-sm">
+            <span>After adding collateral, click &quot;Refresh records&quot; (or wait a moment) so your position is loaded, then buy shares.</span>
           </div>
         )}
 
@@ -191,7 +194,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
             onChange={(e) => setAmount(e.target.value)}
             min="0"
             step="0.01"
-            disabled={loading || !hasPosition}
+            disabled={loading || (requestRecords && !isIntentOnlyWallet(wallet) ? !hasPosition : false)}
           />
         </div>
 
@@ -232,7 +235,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
         <button
           className="btn btn-primary w-full btn-sm"
           onClick={handleBuy}
-          disabled={loading || !userAddress || !wallet || !isOpen || isPaused || !hasPosition}
+          disabled={loading || !userAddress || !wallet || !isOpen || isPaused || (requestRecords && !isIntentOnlyWallet(wallet) ? !hasPosition : false)}
         >
           {loading ? (
             <span className="loading loading-spinner loading-sm"></span>

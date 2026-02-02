@@ -1,45 +1,30 @@
 /**
  * Transaction options builder for Aleo executeTransaction.
  *
- * Shield record rule: Shield's executeTransaction expects inputs to be string[].
- * For record slots (recordIndices), pass the record CIPHERTEXT STRING (e.g. from
- * record.recordCiphertext). Do not pass the whole record object — Shield rejects
- * that with "Invalid transaction payload". Never pass type-name strings like
- * "credits.aleo/credits.record"; use only the actual ciphertext from requestRecords.
+ * "Failed to parse input #5 ('credits.aleo/credits.record')" means the wallet is
+ * trying to parse our value AS that type — it expects the decrypted record string
+ * (plaintext / struct string), same as Leo wallet. Do not pass ciphertext.
+ * For record slots: pass the decrypted record (string or object with plaintext/struct fields).
  * Primitives (u64, field, etc.) are normalized to ABI strings.
  */
 
 import type { TransactionOptions } from '@provablehq/aleo-types';
+import { normalizeCreditsRecordInput, redactForLog, sanitizeRecordForShield } from './recordSanitizer';
+
+const DEBUG_RECORD_INPUTS =
+  typeof process !== 'undefined' &&
+  process.env?.NEXT_PUBLIC_DEBUG_RECORD_INPUTS === 'true';
 
 function isRecordSlot(index: number, recordIndices?: number[]): boolean {
   return Boolean(recordIndices && recordIndices.includes(index));
 }
 
 /**
- * Convert record/ciphertext to the format the adapter expects.
- * Shield: ciphertext string. Leo: can accept decrypted record object (owner, data, spent).
- * Returns string for ciphertext, or the object as-is for Leo decrypted records.
+ * Convert record to string for adapter. Same for Leo and Shield.
+ * Uses normalizeCreditsRecordInput: only decrypted/plaintext accepted; ciphertext rejected.
  */
-function recordToInputForAdapter(input: unknown): string | unknown {
-  if (typeof input === 'string') {
-    if (input.startsWith('record') && input.length > 50) return input;
-    if (input.includes('credits.aleo/credits') && !input.startsWith('record')) {
-      throw new Error('Invalid record: do not pass type name; use record ciphertext from requestRecords.');
-    }
-    throw new Error(`Invalid record string: expected ciphertext (starts with "record", length > 50), got length ${input.length}.`);
-  }
-  if (input && typeof input === 'object') {
-    const r = input as Record<string, unknown>;
-    const cipher = (r.recordCiphertext ?? r.ciphertext ?? r.cipherText ?? r.record ?? r.value) as string | undefined;
-    if (typeof cipher === 'string' && cipher.startsWith('record') && cipher.length > 50) {
-      return cipher;
-    }
-    if ('owner' in r || 'data' in r || 'spent' in r) {
-      return input;
-    }
-    throw new Error('Record has no ciphertext (recordCiphertext, ciphertext, record, or value). Use requestRecords(program, false) and allow the wallet to show the record picker.');
-  }
-  throw new Error(`Invalid record at record index: expected string or object with ciphertext, got ${typeof input}.`);
+function recordToInputForAdapter(input: unknown): string {
+  return normalizeCreditsRecordInput(input);
 }
 
 function normalizePrimitive(input: unknown, _index: number): string {
@@ -66,14 +51,14 @@ function normalizePrimitive(input: unknown, _index: number): string {
   return String(input);
 }
 
+export type CreateTransactionOptionsParams = {
+  forShield?: boolean;
+};
+
 /**
- * Build options for executeTransaction. Primitives are normalized to ABI
- * strings. For record indices, record values are passed as ciphertext string
- * (Shield) or as full record object (Leo decrypted) via recordToInputForAdapter.
- *
- * We do NOT pass recordIndices to the adapter when we've already serialized
- * records. Shield may interpret recordIndices as "replace these inputs with
- * records from wallet" and overwrite our value with the type name.
+ * Build options for executeTransaction. Primitives normalized to ABI strings.
+ * Record indices use recordToInputForAdapter (decrypted record string only).
+ * When options.forShield is true, record slots are also passed through sanitizeRecordForShield.
  */
 export function createTransactionOptions(
   programId: string,
@@ -81,20 +66,43 @@ export function createTransactionOptions(
   inputs: unknown[],
   fee: number,
   privateFee: boolean = true,
-  recordIndices?: number[]
+  recordIndices?: number[],
+  options?: CreateTransactionOptionsParams
 ): TransactionOptions {
+  const forShield = options?.forShield === true;
   const processedInputs: unknown[] = inputs.map((input, index) => {
     if (isRecordSlot(index, recordIndices)) {
-      return recordToInputForAdapter(input);
+      const beforeStr =
+        typeof input === 'string'
+          ? input
+          : typeof input === 'object' && input !== null
+            ? JSON.stringify(input).slice(0, 80)
+            : String(input);
+      let result = recordToInputForAdapter(input);
+      if (forShield) result = sanitizeRecordForShield(result);
+      if (!result || result.trim() === '') {
+        throw new Error(`Record input #${index} normalized to empty string. Ensure a valid record is provided.`);
+      }
+      if (DEBUG_RECORD_INPUTS) {
+        console.log(
+          `[Record sanitizer] input #${index}: before=${redactForLog(beforeStr)}, after=${redactForLog(result)}`
+        );
+      }
+      return result;
     }
     return normalizePrimitive(input, index);
   });
 
-  return {
+  const built: TransactionOptions & { recordIndices?: number[] } = {
     program: programId,
     function: functionName,
-    inputs: processedInputs,
+    inputs: processedInputs as string[],
     fee,
     privateFee,
   };
+  if (recordIndices != null && recordIndices.length > 0) {
+    built.recordIndices = recordIndices;
+  }
+  return built;
 }
+

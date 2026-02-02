@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { initMarket, getTotalMarketsCount, getMarketIdAtIndex, fetchMarketCreator, clearMarketRegistryCache } from '@/lib/aleo/rpc';
+import { isIntentOnlyWallet } from '@/lib/aleo/wallet/adapter';
 import { filterUnspentRecords } from '@/lib/aleo/wallet/records';
 import { getFeeForFunction } from '@/utils/feeCalculator';
 import { createMarketMetadata, getMarketMetadata, savePendingMarketMetadata, finalizePendingMarketMetadata } from '@/services/marketMetadata';
@@ -138,38 +139,30 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
       const metadataHash = generateMetadataHash(title, description);
       const salt = generateSalt();
       
-      // Calculate total needed for balance check (bond + liquidity + estimated fee)
-      // Note: We need TWO distinct records - one for the transaction and one for the fee
-      const estimatedFee = getFeeForFunction('init') / CREDITS_TO_MICROCREDITS; // Convert to credits
-      const totalNeeded = bond + liquidity + estimatedFee;
-      
-      if (!requestRecords || !connected) {
-        throw new Error(
-          'requestRecords not available. Please ensure your wallet is connected and supports record access.'
-        );
-      }
-
-      const allRecords = await requestRecords('credits.aleo', false);
-      if (!allRecords || allRecords.length === 0) {
-        throw new Error('No credit records found in wallet');
-      }
-
-      const unspentRecords = filterUnspentRecords(allRecords);
-      if (unspentRecords.length === 0) {
-        throw new Error('No unspent credit records available in wallet');
-      }
-
-      const totalNeededMicrocredits = totalNeeded * CREDITS_TO_MICROCREDITS;
-      const totalBalance = unspentRecords.reduce((sum, r) => sum + r.value, 0);
-      if (totalBalance > 0 && totalBalance < totalNeededMicrocredits) {
-        throw new Error(
-          `Insufficient balance. Need ${totalNeeded.toFixed(6)} credits (${totalNeededMicrocredits} microcredits), ` +
-          `but only have ${(totalBalance / CREDITS_TO_MICROCREDITS).toFixed(6)} credits total.`
-        );
-      }
-
       const liquidityMicrocredits = liquidity * CREDITS_TO_MICROCREDITS;
       const bondMicrocredits = bond * CREDITS_TO_MICROCREDITS;
+
+      // When requestRecords is available and not intent-only (Leo), fetch records and check balance; intent-only (Shield) lets wallet select record
+      if (requestRecords && connected && !isIntentOnlyWallet(wallet)) {
+        const estimatedFee = getFeeForFunction('init') / CREDITS_TO_MICROCREDITS;
+        const totalNeeded = bond + liquidity + estimatedFee;
+        const allRecords = await requestRecords('credits.aleo', false);
+        if (!allRecords || allRecords.length === 0) {
+          throw new Error('No credit records found in wallet');
+        }
+        const unspentRecords = filterUnspentRecords(allRecords);
+        if (unspentRecords.length === 0) {
+          throw new Error('No unspent credit records available in wallet');
+        }
+        const totalNeededMicrocredits = totalNeeded * CREDITS_TO_MICROCREDITS;
+        const totalBalance = unspentRecords.reduce((sum, r) => sum + r.value, 0);
+        if (totalBalance > 0 && totalBalance < totalNeededMicrocredits) {
+          throw new Error(
+            `Insufficient balance. Need ${totalNeeded.toFixed(6)} credits (${totalNeededMicrocredits} microcredits), ` +
+            `but only have ${(totalBalance / CREDITS_TO_MICROCREDITS).toFixed(6)} credits total.`
+          );
+        }
+      }
 
       const transactionId = await initMarket(
         wallet,

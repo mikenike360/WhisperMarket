@@ -27,7 +27,7 @@ export const RedeemButton: React.FC<RedeemButtonProps> = ({
   estimatedPayout,
   onRedeemed,
 }) => {
-  const { publicKey, wallet, address } = useWallet();
+  const { publicKey, wallet, address, requestRecords } = useWallet();
   const userAddress = publicKey || address;
   const { addTransaction } = useTransaction();
   const [loading, setLoading] = useState(false);
@@ -72,7 +72,7 @@ export const RedeemButton: React.FC<RedeemButtonProps> = ({
     setError(null);
 
     try {
-      const txId = await redeemPrivate(wallet, userAddress, marketId, positionRecord, outcome);
+      const txId = await redeemPrivate(wallet, userAddress, marketId, positionRecord, outcome, requestRecords ?? undefined);
       addTransaction({ id: txId, label: 'Redeem' });
       onRedeemed?.();
     } catch (err: any) {

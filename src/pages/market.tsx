@@ -44,14 +44,6 @@ const MarketPage: NextPageWithLayout = () => {
 
     loadMarketState();
     loadUserPosition();
-    // Poll for updates every 10 seconds, only if no error
-    const interval = setInterval(() => {
-      if (!error && marketId) {
-        loadMarketState();
-        loadUserPosition();
-      }
-    }, 10000);
-    return () => clearInterval(interval);
   }, [error, marketId]);
 
   useEffect(() => {
@@ -89,13 +81,13 @@ const MarketPage: NextPageWithLayout = () => {
   };
 
   const loadUserPosition = async () => {
-    if (!wallet || !userAddress || !marketId || !requestRecords) {
+    if (!wallet || !userAddress || !marketId) {
       setUserPosition(null);
       setUserPositionRecord(null);
       return;
     }
     try {
-      const allPositions = await getAllUserPositions(wallet, PREDICTION_MARKET_PROGRAM_ID, requestRecords);
+      const allPositions = await getAllUserPositions(wallet, PREDICTION_MARKET_PROGRAM_ID, requestRecords ?? undefined);
       const forMarket = allPositions.find((p) => p.position.marketId === marketId);
       if (forMarket) {
         setUserPosition(forMarket.position);
@@ -311,6 +303,7 @@ const MarketPage: NextPageWithLayout = () => {
               isOpen={marketState.status === 0}
               isPaused={marketState.isPaused}
               onTransactionSubmitted={handleTransactionSubmitted}
+              requestRecords={requestRecords}
             />
           </div>
         </div>

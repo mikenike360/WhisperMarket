@@ -83,10 +83,17 @@ function hasCiphertextLike(v: unknown): boolean {
 /**
  * Filter and validate unspent records from wallet.
  * Keeps records that are unspent AND (have ciphertext OR have parseable microcredits).
+ * Accepts both objects (Leo/Shield) and strings (Shield plaintext JSON).
  */
 export function filterUnspentRecords(allRecords: unknown[]): UnspentRecord[] {
   const items: (UnspentRecord | null)[] = allRecords.map((record) => {
-    if (typeof record === 'string') return null;
+    if (typeof record === 'string') {
+      if (hasCiphertextLike(record)) return { record, value: 1, id: getRecordId(record) } as UnspentRecord;
+      const value = extractRecordValue(record);
+      if (value > 0) return { record, value, id: getRecordId(record) } as UnspentRecord;
+      if (record.trim().startsWith('{')) return { record, value: 1, id: getRecordId(record) } as UnspentRecord;
+      return null;
+    }
     if (typeof record !== 'object' || record === null) return null;
     const r = record as Record<string, unknown>;
     if (r.spent === true) return null;

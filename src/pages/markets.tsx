@@ -186,28 +186,6 @@ const MarketsPage: NextPageWithLayout = () => {
     loadMarkets();
   }, []);
 
-  // Auto-refresh every 10 seconds when page is visible
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      if (!document.hidden) {
-        loadMarkets();
-      }
-    }, 10000);
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        loadMarkets();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      clearInterval(intervalId);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // loadMarkets is stable, no need to include in deps
-
   const handleMarketCreated = (txId?: string) => {
     if (txId) addTransaction({ id: txId, label: 'Create market' });
     setShowCreateModal(false);
