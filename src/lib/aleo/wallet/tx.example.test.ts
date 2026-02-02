@@ -4,9 +4,9 @@
  * Or paste into a test runner when one is added.
  *
  * createTransactionOptions: init inputs become
- *   ["4000000u64", "1000000u64", "30u64", "122...field", "12345field", <recordCiphertextString>]
- * Primitives are normalized; salt at index 4; record at index 5 is converted to its ciphertext string
- * (Shield and adapters expect inputs: string[]).
+ *   ["4000000u64", "1000000u64", "30u64", "122...field", "12345field", <decryptedRecordString>]
+ * Primitives are normalized; salt at index 4; record at index 5 is decrypted plaintext string
+ * (Shield and Leo expect decrypted record string, not ciphertext).
  *
  * findWalletAdapter: returns adapter for nested structures like
  *   { adapter: { executeTransaction } }, { wallet: { requestRecords } }.
@@ -20,9 +20,8 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
 }
 
-// --- createTransactionOptions: init encoding ---
-const recordCiphertext = 'record1qvqsq72mc5ryzd4tahskdpgpmyvf4vwvm3e0s24leuqxktuuj4szwqq3qyxx66trwfhkxun9v35hguerqqpqzqzdze44th9p0maa7wsw3d5k2dra8yzuk0434m52g486w0xcahdvp2m3l3grh5dx37g4l8392swgvtegwrv9hksrlxjwr7hdcwye5rssz5pkk7m';
-const recordObject = { recordCiphertext, owner: 'aleo1...' };
+// --- createTransactionOptions: init encoding (decrypted record only) ---
+const recordObject = { owner: 'aleo1abc...private', microcredits: '1000000u64.private' };
 const initInputs: unknown[] = [
   4000000,
   1000000,
@@ -47,7 +46,7 @@ assert(options.inputs[1] === '1000000u64', 'input 1 must be 1000000u64');
 assert(options.inputs[2] === '30u64', 'input 2 must be 30u64');
 assert((options.inputs[3] as string).endsWith('field'), 'input 3 must end with field');
 assert((options.inputs[4] as string).endsWith('field'), 'input 4 must be salt (field)');
-assert(options.inputs[5] === recordCiphertext, 'input 5 must be record ciphertext string (Shield expects string[])');
+assert((options.inputs[5] as string).includes('owner') && (options.inputs[5] as string).includes('microcredits'), 'input 5 must be decrypted record string (plaintext)');
 
 // --- findWalletAdapter: nested structures ---
 const mockExecute = () => Promise.resolve({ transactionId: 'tx1' });

@@ -9,7 +9,7 @@
  */
 
 import type { TransactionOptions } from '@provablehq/aleo-types';
-import { normalizeCreditsRecordInput, redactForLog } from './recordSanitizer';
+import { normalizeCreditsRecordInput, redactForLog, sanitizeRecordForShield } from './recordSanitizer';
 
 const DEBUG_RECORD_INPUTS =
   typeof process !== 'undefined' &&
@@ -51,10 +51,14 @@ function normalizePrimitive(input: unknown, _index: number): string {
   return String(input);
 }
 
+export type CreateTransactionOptionsParams = {
+  forShield?: boolean;
+};
+
 /**
  * Build options for executeTransaction. Primitives normalized to ABI strings.
  * Record indices use recordToInputForAdapter (decrypted record string only).
- * Same path for Leo and Shield.
+ * When options.forShield is true, record slots are also passed through sanitizeRecordForShield.
  */
 export function createTransactionOptions(
   programId: string,
@@ -62,8 +66,10 @@ export function createTransactionOptions(
   inputs: unknown[],
   fee: number,
   privateFee: boolean = true,
-  recordIndices?: number[]
+  recordIndices?: number[],
+  options?: CreateTransactionOptionsParams
 ): TransactionOptions {
+  const forShield = options?.forShield === true;
   const processedInputs: unknown[] = inputs.map((input, index) => {
     if (isRecordSlot(index, recordIndices)) {
       const beforeStr =
@@ -72,7 +78,11 @@ export function createTransactionOptions(
           : typeof input === 'object' && input !== null
             ? JSON.stringify(input).slice(0, 80)
             : String(input);
-      const result = recordToInputForAdapter(input);
+      let result = recordToInputForAdapter(input);
+      if (forShield) result = sanitizeRecordForShield(result);
+      if (!result || result.trim() === '') {
+        throw new Error(`Record input #${index} normalized to empty string. Ensure a valid record is provided.`);
+      }
       if (DEBUG_RECORD_INPUTS) {
         console.log(
           `[Record sanitizer] input #${index}: before=${redactForLog(beforeStr)}, after=${redactForLog(result)}`
@@ -83,50 +93,16 @@ export function createTransactionOptions(
     return normalizePrimitive(input, index);
   });
 
-  return {
+  const built: TransactionOptions & { recordIndices?: number[] } = {
     program: programId,
     function: functionName,
     inputs: processedInputs as string[],
     fee,
     privateFee,
   };
+  if (recordIndices != null && recordIndices.length > 0) {
+    built.recordIndices = recordIndices;
+  }
+  return built;
 }
 
-/** Placeholder for intent path: wallet (e.g. Shield) will replace these with records. */
-export const RECORD_TYPE_CREDITS = 'credits.aleo/credits';
-export const RECORD_TYPE_POSITION = 'whisper_market.aleo/Position';
-
-/** Placeholder for intent path when no record is provided; wallet will prompt for record selection. */
-export const RECORD_PLACEHOLDER_INTENT = '';
-
-export type IntentTransactionOptions = TransactionOptions & { recordIndices?: number[] };
-
-/**
- * Build transaction options for intent path (Shield / record-opaque wallets).
- * Pass placeholders at record indices; wallet will prompt user to select records.
- * Fee is passed through in microcredits (caller uses getFeeForFunction).
- */
-export function createIntentTransactionOptions(
-  programId: string,
-  functionName: string,
-  inputs: unknown[],
-  fee: number,
-  privateFee: boolean,
-  recordIndices: number[]
-): IntentTransactionOptions {
-  const processOne = (input: unknown, index: number): unknown =>
-    recordIndices.includes(index)
-      ? typeof input === 'string' ? input : String(input)
-      : normalizePrimitive(input, index);
-
-  const processedInputs = inputs.map((input, index) => processOne(input, index));
-
-  return {
-    program: programId,
-    function: functionName,
-    inputs: processedInputs as string[],
-    fee,
-    privateFee,
-    recordIndices,
-  };
-}

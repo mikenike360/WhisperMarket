@@ -24,7 +24,7 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
   onRedeem,
 }) => {
   const walletHook = useWallet();
-  const { publicKey, wallet, address } = walletHook as any;
+  const { publicKey, wallet, address, requestRecords } = walletHook as any;
   const userAddress = publicKey || address;
   const { addTransaction } = useTransaction();
   const [redeemLoading, setRedeemLoading] = useState(false);
@@ -112,7 +112,8 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
         userAddress,
         marketId,
         positionRecord,
-        marketState.outcome
+        marketState.outcome,
+        requestRecords ?? undefined
       );
       addTransaction({ id: txId, label: 'Redeem' });
       onRedeem?.();

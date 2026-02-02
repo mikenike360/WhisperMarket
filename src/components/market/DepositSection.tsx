@@ -76,7 +76,8 @@ export const DepositSection: React.FC<DepositSectionProps> = ({
           creditRecord as string | undefined,
           depositMicrocredits,
           positionRecord as string | undefined,
-          0
+          0,
+          requestRecords ?? undefined
         );
       } else {
         txId = await openPositionPrivate(
@@ -85,7 +86,8 @@ export const DepositSection: React.FC<DepositSectionProps> = ({
           marketId,
           creditRecord as string | undefined,
           depositMicrocredits,
-          0
+          0,
+          requestRecords ?? undefined
         );
       }
 

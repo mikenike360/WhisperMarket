@@ -2,9 +2,12 @@
  * Sanitizes Shield-returned credits records into plaintext format for executeTransaction.
  * Shield expects plaintext (Leo struct string), not ciphertext. Shield's adapter may return
  * plaintext wrapped with double quotes and escaped newlines — we unescape and normalize.
+ *
+ * Chain/indexer record shape (e.g. whisper_market Position) has recordPlaintext with the
+ * decrypted struct string; we use that directly for the transaction input.
  */
 
-const PLAINTEXT_KEYS = ['plaintext', 'recordPlaintext', 'record', 'value', 'data'] as const;
+const PLAINTEXT_KEYS = ['recordPlaintext', 'record_plaintext', 'plaintext', 'record', 'value', 'data'] as const;
 
 /**
  * Redact a string for safe logging. Never log full record content.
@@ -26,6 +29,7 @@ function isCiphertext(s: string): boolean {
 
 /**
  * Sanitize a string that may have surrounding quotes and escaped newlines.
+ * Collapses newlines to spaces so the wallet gets a single-line struct string.
  */
 function sanitizeString(s: string): string {
   let out = s.trim();
@@ -35,7 +39,7 @@ function sanitizeString(s: string): string {
   }
   // Replace literal \n (backslash + n) with actual newline
   out = out.replace(/\\n/g, '\n');
-  // Normalize whitespace: collapse multiple spaces/newlines to single space
+  // Normalize whitespace: collapse multiple spaces/newlines to single space (single-line struct)
   out = out.replace(/\s+/g, ' ').trim();
   return out;
 }
@@ -61,6 +65,7 @@ function leoObjectToStructString(obj: Record<string, unknown>): string {
 
 /**
  * Try to extract plaintext string from an object.
+ * When record has .data as object (e.g. Shield Position/credits), serialize the inner struct so the wallet gets the correct ABI shape.
  */
 function extractPlaintextFromObject(obj: Record<string, unknown>): string | null {
   for (const key of PLAINTEXT_KEYS) {
@@ -68,6 +73,11 @@ function extractPlaintextFromObject(obj: Record<string, unknown>): string | null
     if (typeof val === 'string' && val.trim().length > 0) {
       return val;
     }
+  }
+  // Wrapper with inner struct: { data: { owner, market_id, ... }, spent } — serialize inner .data for transaction input
+  const dataVal = obj.data;
+  if (typeof dataVal === 'object' && dataVal !== null && !Array.isArray(dataVal)) {
+    return leoObjectToStructString(dataVal as Record<string, unknown>);
   }
   // Leo-shaped object: owner, microcredits, _nonce, _version — use struct format for Shield
   if ('owner' in obj || 'microcredits' in obj || '_nonce' in obj || 'data' in obj) {
@@ -116,4 +126,18 @@ export function normalizeCreditsRecordInput(recordLike: unknown): string {
   }
 
   throw new Error(`Invalid record input: expected string or object, got ${typeof recordLike}.`);
+}
+
+/**
+ * Extra cleaning for Shield wallet: trim, collapse whitespace, remove control characters.
+ * Use only when forShield is true so the wallet displays the record input correctly.
+ */
+export function sanitizeRecordForShield(recordString: string): string {
+  if (!recordString || typeof recordString !== 'string') return recordString;
+  let out = recordString.trim();
+  // Collapse any whitespace (including \t, \r, \n) to single space
+  out = out.replace(/\s+/g, ' ');
+  // Strip control characters that might break Shield display
+  out = out.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+  return out.trim();
 }

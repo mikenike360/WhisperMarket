@@ -17,6 +17,8 @@ interface BuyFormProps {
   isOpen: boolean;
   isPaused: boolean;
   onTransactionSubmitted?: (txId: string, label?: string) => void;
+  /** Pass from parent so Shield/wallet can fetch and pass position record when buying shares. */
+  requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>;
 }
 
 const SLIPPAGE_TOLERANCE = 0.01; // 1% slippage tolerance
@@ -29,8 +31,10 @@ export const BuyForm: React.FC<BuyFormProps> = ({
   isOpen,
   isPaused,
   onTransactionSubmitted,
+  requestRecords: requestRecordsProp,
 }) => {
-  const { publicKey, wallet, address, requestRecords } = useWallet();
+  const { publicKey, wallet, address, requestRecords: requestRecordsHook } = useWallet();
+  const requestRecords = requestRecordsProp ?? requestRecordsHook;
   const userAddress = publicKey || address;
   const [amount, setAmount] = useState<string>('');
   const [side, setSide] = useState<'yes' | 'no'>('yes');
@@ -94,8 +98,8 @@ export const BuyForm: React.FC<BuyFormProps> = ({
     setError(null);
 
     try {
-      // With Leo we have userPositionRecord; with Shield (intent path) we pass undefined and wallet will prompt for position
-      const positionRecord = !isIntentOnlyWallet(wallet) && requestRecords && userPositionRecord ? userPositionRecord : undefined;
+      // Use the position record when available (from parent state). For Leo we have it after load; for Shield we use it when the page has it (e.g. after deposit + refresh or after loadUserPosition).
+      const positionRecord = userPositionRecord ?? undefined;
 
       if (requestRecords && !isIntentOnlyWallet(wallet) && userPosition && userPosition.collateralAvailable < buyMicrocredits) {
         throw new Error(
@@ -125,7 +129,8 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           marketState.yesReserve,
           marketState.noReserve,
           marketState.feeBps,
-          0
+          0,
+          requestRecords ?? undefined
         );
       } else {
         txId = await swapCollateralForNoPrivate(
@@ -138,7 +143,8 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           marketState.yesReserve,
           marketState.noReserve,
           marketState.feeBps,
-          0
+          0,
+          requestRecords ?? undefined
         );
       }
 
@@ -172,7 +178,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
         )}
         {(!requestRecords || isIntentOnlyWallet(wallet)) && (
           <div className="alert alert-info mb-4 text-sm">
-            <span>With Shield wallet you can buy directly; the wallet will prompt you to select a position record.</span>
+            <span>After adding collateral, click &quot;Refresh records&quot; (or wait a moment) so your position is loaded, then buy shares.</span>
           </div>
         )}
 
