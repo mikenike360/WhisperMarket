@@ -1558,11 +1558,26 @@ export async function unpause(
   return txId;
 }
 
+const MARKET_STATE_CACHE_TTL_MS = 45 * 1000; // 45 seconds
+const marketStateCache = new Map<string, { data: MarketState; timestamp: number }>();
+
 /**
- * Get market state (AMM-based)
+ * Clear the getMarketState cache. Call after refresh or when market state may have changed.
+ */
+export function clearMarketStateCache(): void {
+  marketStateCache.clear();
+}
+
+/**
+ * Get market state (AMM-based). Cached per marketId for 45 seconds to reduce API load.
  * @param marketId - Field-based market ID
  */
 export async function getMarketState(marketId: string): Promise<MarketState> {
+  const cached = marketStateCache.get(marketId);
+  if (cached && Date.now() - cached.timestamp < MARKET_STATE_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   try {
     const status = await fetchMarketMappingValue('market_status', marketId);
     const yesReserve = await fetchMarketMappingValue('market_yes_reserve', marketId);
@@ -1597,7 +1612,7 @@ export async function getMarketState(marketId: string): Promise<MarketState> {
     // isPaused is derived from status (status === 2 means paused)
     const isPaused = Number(status) === 2;
 
-    return {
+    const state: MarketState = {
       status: Number(status),
       outcome,
       priceYes: Number(priceYes),
@@ -1607,6 +1622,8 @@ export async function getMarketState(marketId: string): Promise<MarketState> {
       feeBps: Number(feeBps),
       isPaused,
     };
+    marketStateCache.set(marketId, { data: state, timestamp: Date.now() });
+    return state;
   } catch (error: any) {
     throw error;
   }

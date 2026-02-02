@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
-import { initMarket, getTotalMarketsCount, getMarketIdAtIndex, fetchMarketCreator, clearMarketRegistryCache } from '@/lib/aleo/rpc';
+import { initMarket, getTotalMarketsCount, getMarketIdAtIndex, fetchMarketCreator, clearMarketRegistryCache, clearMarketStateCache } from '@/lib/aleo/rpc';
 import { isIntentOnlyWallet } from '@/lib/aleo/wallet/adapter';
 import { filterUnspentRecords } from '@/lib/aleo/wallet/records';
 import { getFeeForFunction } from '@/utils/feeCalculator';
@@ -212,6 +212,7 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
                 
                 if (marketId) {
                   clearMarketRegistryCache();
+                  clearMarketStateCache();
                   
                   let creator: string | null = null;
                   try {

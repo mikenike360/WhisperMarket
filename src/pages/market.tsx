@@ -13,7 +13,7 @@ import { MarketStats } from '@/components/market/MarketStats';
 import { DepositSection } from '@/components/market/DepositSection';
 import { BuyForm } from '@/components/market/BuyForm';
 import { StatusBanner } from '@/components/market/StatusBanner';
-import { getMarketState, getAllUserPositions } from '@/lib/aleo/rpc';
+import { getMarketState, getAllUserPositions, clearMarketStateCache } from '@/lib/aleo/rpc';
 import { PREDICTION_MARKET_PROGRAM_ID, UserPosition } from '@/types';
 import { getMarketMetadata } from '@/services/marketMetadata';
 import { useTransaction } from '@/contexts/TransactionContext';
@@ -106,6 +106,7 @@ const MarketPage: NextPageWithLayout = () => {
     addTransaction({ id: txId, label: label ?? 'Transaction' });
     setTransactionId(txId);
     setDismissedTxId(null);
+    clearMarketStateCache();
     setTimeout(() => {
       loadMarketState();
       loadUserPosition();
@@ -115,6 +116,7 @@ const MarketPage: NextPageWithLayout = () => {
 
   const handleRefreshRecords = async () => {
     setRefreshingRecords(true);
+    clearMarketStateCache();
     try {
       await loadUserPosition();
       await loadMarketState();
