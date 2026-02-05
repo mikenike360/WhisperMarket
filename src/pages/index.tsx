@@ -77,24 +77,25 @@ const MainPage: NextPageWithLayout = () => {
         }
         const ids = active.map((m) => m.marketId);
         const metadataMap = await getMarketsMetadata(ids);
+        const stateResults = await Promise.all(
+          active.map((m) => getMarketState(m.marketId).catch(() => null))
+        );
+        if (cancelled) return;
         const results: PreviewMarket[] = [];
-        for (const m of active) {
-          if (cancelled) return;
-          try {
-            const state = await getMarketState(m.marketId);
-            const meta = metadataMap[m.marketId];
-            const priceYes = calculatePriceFromReserves(state.yesReserve, state.noReserve);
-            const priceNo = 10000 - priceYes;
-            results.push({
-              marketId: m.marketId,
-              title: meta?.title ?? `Market ${m.marketId.slice(0, 8)}...`,
-              description: meta?.description ?? 'Prediction market',
-              priceYes,
-              priceNo,
-            });
-          } catch {
-            // skip failed market
-          }
+        for (let i = 0; i < active.length; i++) {
+          const state = stateResults[i];
+          if (!state) continue;
+          const m = active[i];
+          const meta = metadataMap[m.marketId];
+          const priceYes = calculatePriceFromReserves(state.yesReserve, state.noReserve);
+          const priceNo = 10000 - priceYes;
+          results.push({
+            marketId: m.marketId,
+            title: meta?.title ?? `Market ${m.marketId.slice(0, 8)}...`,
+            description: meta?.description ?? 'Prediction market',
+            priceYes,
+            priceNo,
+          });
         }
         if (!cancelled) {
           setPreviewMarkets(results);

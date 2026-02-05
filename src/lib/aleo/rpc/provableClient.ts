@@ -11,7 +11,8 @@
 
 import { PROVABLE_API_BASE_URL } from '@/types';
 
-const TICK_MS = 250; // Min delay between requests = 4/sec
+const TICK_MS = 250; // Min delay between starting new requests = 4/sec
+const MAX_CONCURRENT = 4; // Stay under Provable's 5 req/sec limit
 
 type QueuedTask<T> = {
   execute: () => Promise<T>;
@@ -20,29 +21,33 @@ type QueuedTask<T> = {
 };
 
 const queue: QueuedTask<unknown>[] = [];
-let processing = false;
+let activeCount = 0;
 
-function processQueue(): void {
-  if (processing || queue.length === 0) return;
-  const task = queue.shift() as QueuedTask<unknown>;
-  if (!task) return;
-  processing = true;
+function runTask(task: QueuedTask<unknown>): void {
+  activeCount++;
   task
     .execute()
     .then((v) => task.resolve(v))
     .catch((e) => task.reject(e))
     .finally(() => {
-      processing = false;
+      activeCount--;
       if (queue.length > 0) {
         setTimeout(processQueue, TICK_MS);
       }
     });
 }
 
+function processQueue(): void {
+  if (activeCount >= MAX_CONCURRENT || queue.length === 0) return;
+  const task = queue.shift() as QueuedTask<unknown>;
+  if (!task) return;
+  runTask(task);
+}
+
 function enqueue<T>(execute: () => Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     queue.push({ execute, resolve, reject } as QueuedTask<unknown>);
-    if (queue.length === 1 && !processing) {
+    if (activeCount < MAX_CONCURRENT) {
       processQueue();
     }
   });
@@ -101,8 +106,12 @@ async function fetchMappingValueUnthrottled(
   return value || null;
 }
 
+/** In-flight requests keyed by programId:mappingName:key to coalesce duplicate calls */
+const inFlightMap = new Map<string, Promise<string | null>>();
+
 /**
  * Get mapping value from Provable API (rate limited to 4 req/sec)
+ * Coalesces duplicate requests for the same mapping key.
  *
  * @param programId - Program ID (e.g., "whisper_market.aleo")
  * @param mappingName - Mapping name (e.g., "total_markets")
@@ -114,7 +123,11 @@ export async function getMappingValueFromProvable(
   mappingName: string,
   key: string
 ): Promise<string | null> {
-  return enqueue(() => fetchMappingValueUnthrottled(programId, mappingName, key)).catch(
+  const cacheKey = `${programId}:${mappingName}:${key}`;
+  const existing = inFlightMap.get(cacheKey);
+  if (existing) return existing;
+
+  const promise = enqueue(() => fetchMappingValueUnthrottled(programId, mappingName, key)).catch(
     (error: any) => {
       const errorMessage = error?.message || String(error);
       if (errorMessage.includes('404') || errorMessage.includes('not found')) return null;
@@ -132,5 +145,10 @@ export async function getMappingValueFromProvable(
         return null;
       throw error;
     }
-  );
+  )
+    .finally(() => {
+      inFlightMap.delete(cacheKey);
+    });
+  inFlightMap.set(cacheKey, promise);
+  return promise;
 }

@@ -1150,7 +1150,7 @@ export async function swapCollateralForYesPrivate(
         allRecords = [];
       }
     }
-    const positionRecord = allRecords.length > 0 ? findPositionRecordForMarket(allRecords, marketId) : null;
+    const positionRecord = allRecords.length > 0 ? findPositionRecordForMarket(allRecords, marketId, collateralIn) : null;
     if (positionRecord) {
       const inputs = [
         `${marketId}field`,
@@ -1227,7 +1227,7 @@ export async function swapCollateralForNoPrivate(
         allRecords = [];
       }
     }
-    const positionRecord = allRecords.length > 0 ? findPositionRecordForMarket(allRecords, marketId) : null;
+    const positionRecord = allRecords.length > 0 ? findPositionRecordForMarket(allRecords, marketId, collateralIn) : null;
     if (positionRecord) {
       const inputs = [
         `${marketId}field`,
@@ -1579,37 +1579,28 @@ export async function getMarketState(marketId: string): Promise<MarketState> {
   }
 
   try {
-    const status = await fetchMarketMappingValue('market_status', marketId);
-    const yesReserve = await fetchMarketMappingValue('market_yes_reserve', marketId);
-    const noReserve = await fetchMarketMappingValue('market_no_reserve', marketId);
-    const collateralPool = await fetchMarketMappingValue('market_collateral_pool', marketId);
-    const feeBps = await fetchMarketMappingValue('market_fee_bps', marketId);
-    
-    // Get price from last_price_update mapping, or derive from reserves
-    let priceYes: number;
-    try {
-      priceYes = await fetchMarketMappingValue('last_price_update', marketId);
-    } catch {
-      // Fallback: derive price from reserves if last_price_update not available
-      // Price formula: priceYes = (noReserve * SCALE) / (yesReserve + noReserve)
-      const SCALE = 10000;
-      priceYes = Math.floor((Number(noReserve) * SCALE) / (Number(yesReserve) + Number(noReserve)));
-    }
-    
+    const [status, yesReserve, noReserve, collateralPool, feeBps, outcomeValue] = await Promise.all([
+      fetchMarketMappingValue('market_status', marketId),
+      fetchMarketMappingValue('market_yes_reserve', marketId),
+      fetchMarketMappingValue('market_no_reserve', marketId),
+      fetchMarketMappingValue('market_collateral_pool', marketId),
+      fetchMarketMappingValue('market_fee_bps', marketId),
+      fetchMarketMappingValueString('market_outcome', marketId).catch(() => null),
+    ]);
+
+    const SCALE = 10000;
+    const priceYes =
+      Number(yesReserve) + Number(noReserve) > 0
+        ? Math.floor((Number(noReserve) * SCALE) / (Number(yesReserve) + Number(noReserve)))
+        : SCALE / 2;
+
     let outcome: boolean | null = null;
-    try {
-      // Read from market_outcome (canonical mapping; same one used by redeem_private and shown on chain)
-      let outcomeValue = await fetchMarketMappingValueString('market_outcome', marketId);
-      // Strip quotes and Aleo type suffixes (e.g. ".private") that the API may return
-      outcomeValue = outcomeValue.trim().replace(/^["']|["']$/g, '').replace(/\.(private|public)$/i, '').trim();
-      const raw = outcomeValue.toLowerCase();
+    if (outcomeValue != null && outcomeValue.trim().length > 0) {
+      const cleaned = outcomeValue.trim().replace(/^["']|["']$/g, '').replace(/\.(private|public)$/i, '').trim();
+      const raw = cleaned.toLowerCase();
       outcome = raw === 'true' || raw === '1';
-    } catch {
-      // Market not resolved yet
-      outcome = null;
     }
 
-    // isPaused is derived from status (status === 2 means paused)
     const isPaused = Number(status) === 2;
 
     const state: MarketState = {
@@ -1672,7 +1663,7 @@ export async function getUserPositionRecords(
     const normalizedMarketId = normalizeMarketId(marketId);
     // Filter for Position records (not spent) and match market_id (compare normalized forms)
     const positionRecords = allRecords.filter((record: any) => {
-      if (record.spent) return false;
+      if (isRecordSpent(record)) return false;
       const recordData = record.data || record;
       if (recordData.market_id) {
         const recordMarketId = extractFieldValue(recordData.market_id);
@@ -1727,6 +1718,15 @@ function extractFieldValue(value: any): string {
     return normalizeMarketId(String(value));
   }
   return normalizeMarketId(String(value));
+}
+
+/** Check if a record is spent. Handles true, "true", 1, etc. from wallet/indexer. */
+function isRecordSpent(record: any): boolean {
+  if (record == null) return false;
+  const s = record.spent;
+  if (s === true || s === 1) return true;
+  if (typeof s === 'string' && s.toLowerCase() === 'true') return true;
+  return false;
 }
 
 /**
@@ -1871,27 +1871,53 @@ function getPositionPlaintext(r: any): string | undefined {
 
 export function findPositionRecordForMarket(
   records: any[],
-  marketId: string
+  marketId: string,
+  minCollateralRequired?: number
 ): any | null {
   if (!records || records.length === 0) return null;
   const normalizedMarketId = normalizeMarketId(marketId);
   const marketIdCore = marketIdNumericCore(marketId);
-  const found = records.find((r: any) => {
-    if (r != null && r.spent === true) return false;
+
+  const matches = records.filter((r: any) => {
+    if (isRecordSpent(r)) return false;
     const recordData = r?.data ?? r;
+    let marketMatch = false;
     if (recordData && recordData.market_id != null) {
       const recordMarketId = extractFieldValue(recordData.market_id);
-      if (recordMarketId === normalizedMarketId) return true;
-      if (marketIdCore && marketIdNumericCore(recordMarketId) === marketIdCore) return true;
+      if (recordMarketId === normalizedMarketId || (marketIdCore && marketIdNumericCore(recordMarketId) === marketIdCore)) {
+        marketMatch = true;
+      }
     }
-    const plaintext = getPositionPlaintext(r);
-    if (typeof plaintext === 'string' && plaintext.length > 0) {
-      const extracted = extractMarketIdFromPlaintext(plaintext);
-      if (extracted !== null && extracted === normalizedMarketId) return true;
-      if (extracted !== null && marketIdCore && marketIdNumericCore(extracted) === marketIdCore) return true;
+    if (!marketMatch) {
+      const plaintext = getPositionPlaintext(r);
+      if (typeof plaintext === 'string' && plaintext.length > 0) {
+        const extracted = extractMarketIdFromPlaintext(plaintext);
+        marketMatch = Boolean(
+          extracted !== null && (extracted === normalizedMarketId || (marketIdCore && marketIdNumericCore(extracted) === marketIdCore))
+        );
+      }
     }
-    return false;
+    return marketMatch;
   });
+
+  let found: any = null;
+  if (minCollateralRequired != null && minCollateralRequired > 0) {
+    const withCollateral = matches
+      .map((r) => {
+        try {
+          const pos = parsePositionRecord(r);
+          return { record: r, collateralAvailable: pos.collateralAvailable };
+        } catch {
+          return { record: r, collateralAvailable: 0 };
+        }
+      })
+      .filter((x) => x.collateralAvailable >= minCollateralRequired)
+      .sort((a, b) => b.collateralAvailable - a.collateralAvailable);
+    found = withCollateral.length > 0 ? withCollateral[0].record : null;
+  }
+  if (!found && matches.length > 0) {
+    found = matches[0];
+  }
   return found ?? null;
 }
 
@@ -1969,7 +1995,7 @@ export async function getAllUserPositions(
     const byMarket = new Map<string, { position: UserPosition; records: any[] }>();
 
     for (const record of allRecords) {
-      if (record != null && record.spent === true) continue;
+      if (isRecordSpent(record)) continue;
 
       const recordData = record?.data ?? record;
       const plaintext = getPositionPlaintext(record);
@@ -1998,10 +2024,21 @@ export async function getAllUserPositions(
       }
     }
 
-    return Array.from(byMarket.entries()).map(([, { position, records }]) => ({
-      position,
-      record: records[0],
-    }));
+    return Array.from(byMarket.entries()).map(([, { position, records }]) => {
+      const bestRecord =
+        records.length <= 1
+          ? records[0]
+          : records.reduce((best, r) => {
+              try {
+                const pos = parsePositionRecord(r);
+                const bestPos = parsePositionRecord(best);
+                return pos.collateralAvailable >= bestPos.collateralAvailable ? r : best;
+              } catch {
+                return best;
+              }
+            });
+      return { position, record: bestRecord };
+    });
   } catch {
     return [];
   }
