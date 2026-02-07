@@ -65,7 +65,7 @@ export function PlatformStats({ className = '' }: PlatformStatsProps) {
 
   if (loading) {
     return (
-      <div className={`card bg-base-200 shadow-lg rounded-xl ${className}`}>
+      <div className={`card shadow-xl rounded-xl ${className}`} style={{ backgroundColor: '#171717', borderColor: '#404040', borderWidth: 1 }}>
         <div className="card-body py-4">
           <div className="stats stats-horizontal w-full">
             {[1, 2, 3].map((i) => (
@@ -83,30 +83,30 @@ export function PlatformStats({ className = '' }: PlatformStatsProps) {
   if (!stats) return null;
 
   return (
-    <div className={`card bg-base-200 shadow-lg rounded-xl border border-base-300 ${className}`}>
+    <div className={`card shadow-xl rounded-xl ${className}`} style={{ backgroundColor: '#171717', borderColor: '#404040', borderWidth: 1 }}>
       <div className="card-body py-4">
         <div className="stats stats-vertical lg:stats-horizontal shadow w-full">
           <div className="stat">
-            <div className="stat-title text-sm font-semibold text-base-content/90">Active Markets</div>
+            <div className="stat-title text-sm font-bold" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>Active Markets</div>
             <div className="stat-value text-3xl font-bold text-primary">{stats.activeMarkets}</div>
-            <div className="stat-desc text-sm text-base-content/70">{stats.totalMarkets} total markets</div>
+            <div className="stat-desc text-sm font-medium" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{stats.totalMarkets} total markets</div>
           </div>
           <div className="stat">
-            <div className="stat-title text-sm font-semibold text-base-content/90">Total Collateral</div>
+            <div className="stat-title text-sm font-bold" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>Total Collateral</div>
             <div className="stat-value text-3xl font-bold text-success">
               {toCredits(stats.totalCollateral).toLocaleString(undefined, {
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 2,
               })}
             </div>
-            <div className="stat-desc text-sm text-base-content/70">credits in pools</div>
+            <div className="stat-desc text-sm font-medium" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>credits in pools</div>
           </div>
           <div className="stat">
-            <div className="stat-title text-sm font-semibold text-base-content/90">Platform Status</div>
+            <div className="stat-title text-sm font-bold" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>Platform Status</div>
             <div className="stat-value text-2xl">
               <span className="badge badge-success badge-lg">Live</span>
             </div>
-            <div className="stat-desc text-sm text-base-content/70">Built on Aleo</div>
+            <div className="stat-desc text-sm font-medium" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>Built on Aleo</div>
           </div>
         </div>
       </div>

@@ -161,7 +161,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
     <div className="card bg-base-100 shadow-xl rounded-xl">
       <div className="card-body">
         <h3 className="card-title text-base mb-2">Buy shares</h3>
-        <p className="text-sm text-base-content/70 mb-4">
+        <p className="text-sm text-base-content mb-4">
           Use your available collateral to buy YES or NO. Add collateral above if you have none.
         </p>
 
@@ -221,7 +221,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
         </div>
 
         {estimatedOutputMicrocredits !== null && amount && (
-          <p className="text-sm text-base-content/70 mb-3">
+          <p className="text-sm text-base-content mb-3">
             Estimated {side.toUpperCase()} shares: <strong>{toCredits(estimatedOutputMicrocredits).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}</strong> credits
           </p>
         )}

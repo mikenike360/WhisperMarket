@@ -291,10 +291,10 @@ const AdminPage: NextPageWithLayout = () => {
           <div className="card bg-base-100 shadow-xl rounded-xl">
             <div className="card-body">
               <h1 className="card-title text-2xl">Admin Sign In</h1>
-              <p className="text-base-content/70">
+              <p className="text-base-content">
                 Sign a message with your wallet to prove you control the admin address and access the admin panel.
               </p>
-              <p className="text-sm text-base-content/60">
+              <p className="text-sm text-base-content">
                 Connected: <code className="text-xs">{String(userAddress).slice(0, 24)}...</code>
               </p>
               {signInError && (
@@ -335,7 +335,7 @@ const AdminPage: NextPageWithLayout = () => {
         <div className="flex flex-col sm:flex-row items-start justify-between mb-8 gap-4">
           <div>
             <h1 className="text-3xl sm:text-4xl font-bold mb-1">Admin</h1>
-            <p className="text-base-content/70 text-sm sm:text-base">
+            <p className="text-base-content text-sm sm:text-base">
               Manage prediction markets. Connected as <code className="text-xs bg-base-200 px-1.5 py-0.5 rounded">{String(userAddress).slice(0, 16)}…</code>
             </p>
           </div>
@@ -412,7 +412,7 @@ const AdminPage: NextPageWithLayout = () => {
           <div className="card bg-base-200 shadow-xl rounded-xl">
             <div className="card-body">
               <h2 className="card-title text-info">No markets found</h2>
-              <p className="text-base-content/80">Create a market from the Markets page to get started.</p>
+              <p className="text-base-content">Create a market from the Markets page to get started.</p>
             </div>
           </div>
         ) : (
@@ -433,7 +433,7 @@ const AdminPage: NextPageWithLayout = () => {
         )}
 
         {markets.length > 0 && (
-          <div className="mt-8 text-center text-sm text-base-content/60">
+          <div className="mt-8 text-center text-sm text-base-content">
             Total markets: {markets.length} | Auto-refreshes every 30 seconds
           </div>
         )}

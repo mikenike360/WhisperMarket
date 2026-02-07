@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { UserPosition, MarketState, MarketMetadata } from '@/types';
-import { redeemPrivate } from '@/lib/aleo/rpc';
+import { redeemPrivate, pickRecordToRedeem } from '@/lib/aleo/rpc';
 import { toCredits } from '@/utils/credits';
 import { useTransaction } from '@/contexts/TransactionContext';
 
@@ -11,7 +11,8 @@ interface PortfolioPositionCardProps {
   position: UserPosition;
   marketState: MarketState | null;
   metadata?: MarketMetadata;
-  positionRecord: any; // Raw record for redemption
+  positionRecord: any; // Fallback raw record for redemption
+  positionRecords?: any[]; // All position records for this market (used to pick one with winning shares for resolved outcome)
   onRedeem?: () => void;
 }
 
@@ -21,8 +22,17 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
   marketState,
   metadata,
   positionRecord,
+  positionRecords,
   onRedeem,
 }) => {
+  // When resolved, use ONLY a record with winning shares for the outcome (YES -> yesShares, NO -> noShares).
+  // Never fall back to positionRecord when resolved, or we might pass a YES-only record when market resolved NO (or vice versa).
+  const redeemableRecord =
+    positionRecords?.length && marketState?.status === 1 && marketState.outcome !== null
+      ? pickRecordToRedeem(positionRecords, marketState.outcome)
+      : marketState?.status === 1
+        ? null
+        : positionRecord;
   const walletHook = useWallet();
   const { publicKey, wallet, address, requestRecords } = walletHook as any;
   const userAddress = publicKey || address;
@@ -98,8 +108,8 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
       return;
     }
 
-    if (!positionRecord) {
-      setRedeemError('Position record not found');
+    if (!redeemableRecord) {
+      setRedeemError('No redeemable position record found for this outcome');
       return;
     }
 
@@ -111,7 +121,7 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
         wallet,
         userAddress,
         marketId,
-        positionRecord,
+        redeemableRecord,
         marketState.outcome,
         requestRecords ?? undefined
       );
@@ -125,6 +135,7 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
   };
 
   const potentialPayout = calculatePotentialPayout();
+  const hasRedeemableRecord = !!redeemableRecord;
   const hasWinningShares =
     marketState?.status === 1 &&
     marketState.outcome !== null &&
@@ -156,7 +167,7 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
         </div>
 
         {metadata?.description && (
-          <p className="text-sm text-base-content/70 mb-4 line-clamp-2">
+          <p className="text-sm text-base-content mb-4 line-clamp-2">
             {metadata.description}
           </p>
         )}
@@ -204,7 +215,7 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
 
         {/* Actions */}
         <div className="card-actions justify-end">
-          {marketState?.status === 1 && hasWinningShares && !position.payoutClaimed && (
+          {marketState?.status === 1 && hasWinningShares && hasRedeemableRecord && !position.payoutClaimed && (
             <button
               className="btn btn-success btn-sm"
               onClick={handleRedeem}
@@ -229,7 +240,7 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
         </div>
 
         {!marketState && (
-          <div className="text-xs text-base-content/60 mt-2">
+          <div className="text-xs text-base-content mt-2">
             Market state unavailable
           </div>
         )}

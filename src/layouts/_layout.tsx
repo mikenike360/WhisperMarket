@@ -10,6 +10,7 @@ import Footer from '@/components/ui/Footer';
 import { TransactionTracker } from '@/components/transactions/TransactionTracker';
 import { ScrollingTicker } from '@/components/ui/ScrollingTicker';
 import { HeaderStats } from '@/components/ui/HeaderStats';
+import VoxelShaderBackground from '@/components/ui/VoxelShaderBackground';
 import routes from '@/config/routes';
 
 require('@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css');
@@ -100,19 +101,20 @@ export default function Layout({
   const isLanding = router.pathname === '/';
 
   return (
-    <div className="bg-base-100 text-base-content flex min-h-screen flex-col">
+    <div className={`flex min-h-screen flex-col ${isLanding ? 'bg-transparent text-base-content' : 'bg-base-100 text-base-content'}`}>
+      {isLanding && <VoxelShaderBackground />}
       <Header />
       <ScrollingTicker />
       <main
         className={`mb-12 flex flex-grow flex-col ${
           isLanding
-            ? 'pt-20 sm:pt-28 md:pt-32 bg-primary'
+            ? 'pt-20 sm:pt-28 md:pt-32 bg-transparent'
             : 'pt-28 sm:pt-32 md:pt-36 bg-base-100'
         }`}
       >
         {children}
       </main>
-      <Footer />
+      <Footer isLanding={isLanding} />
       <TransactionTracker />
     </div>
   );

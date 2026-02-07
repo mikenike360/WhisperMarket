@@ -287,7 +287,7 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
               {txId && (
                 <div className="space-y-2">
                   <div className="bg-base-200 p-3 rounded-lg">
-                    <div className="text-xs font-semibold text-base-content/70 mb-1">Transaction ID:</div>
+                    <div className="text-xs font-semibold text-base-content mb-1">Transaction ID:</div>
                     <div className="font-mono text-sm break-all">{txId}</div>
                   </div>
                   {explorerUrl && (
@@ -303,7 +303,7 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
                       View on Explorer
                     </a>
                   )}
-                  <div className="text-xs text-base-content/60 mt-2 space-y-1">
+                  <div className="text-xs text-base-content mt-2 space-y-1">
                     <div>⏳ The market will appear in the list once the transaction is finalized and indexed.</div>
                     <div className="text-info mt-2 p-2 bg-info/10 rounded">
                       <div className="font-semibold mb-1">💡 Next Steps:</div>

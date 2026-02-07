@@ -18,6 +18,7 @@ import routes from '@/config/routes';
 interface PositionWithData {
   position: UserPosition;
   record: any;
+  records: any[];
   marketState: MarketState | null;
   metadata: MarketMetadata | null;
 }
@@ -89,9 +90,10 @@ const PortfolioPage: NextPageWithLayout = () => {
       });
 
       // Combine position data with market states and metadata
-      const positionsWithData: PositionWithData[] = allPositions.map(({ position, record }) => ({
+      const positionsWithData: PositionWithData[] = allPositions.map(({ position, record, records }) => ({
         position,
         record,
+        records: records ?? [record],
         marketState: marketStatesMap[position.marketId] || null,
         metadata: fullMetadataMap[position.marketId] || null,
       }));
@@ -138,10 +140,10 @@ const PortfolioPage: NextPageWithLayout = () => {
         <div className="card bg-base-200 shadow-xl max-w-xl mx-auto rounded-xl">
           <div className="card-body items-center text-center py-12">
             <h1 className="text-2xl font-bold mb-2">Your Portfolio</h1>
-            <p className="text-base-content/70 mb-4">
+            <p className="text-base-content mb-4">
               Connect your Aleo wallet to see your positions and trading history.
             </p>
-            <p className="text-sm text-base-content/60 mb-6">
+            <p className="text-sm text-base-content mb-6">
               Use the Connect Wallet button in the header to get started.
             </p>
           </div>
@@ -159,7 +161,7 @@ const PortfolioPage: NextPageWithLayout = () => {
           <div>
             <h1 className="text-3xl sm:text-4xl font-bold mb-2">Your Portfolio</h1>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-base-content/70 text-sm">Connected:</span>
+              <span className="text-base-content text-sm">Connected:</span>
               <code className="text-xs bg-base-200 px-2 py-1 rounded font-mono">{shortAddress}</code>
               <button
                 type="button"
@@ -225,13 +227,13 @@ const PortfolioPage: NextPageWithLayout = () => {
         ) : positions.length === 0 ? (
           <div className="card bg-base-200 shadow-xl rounded-xl">
             <div className="card-body items-center text-center py-16">
-              <div className="text-4xl text-base-content/40 mb-4" aria-hidden>
+              <div className="text-4xl text-base-content mb-4" aria-hidden>
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-16 h-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586A1 1 0 0114.414 9H19a2 2 0 012 2v10a2 2 0 01-2 2z" />
                 </svg>
               </div>
               <h2 className="card-title text-lg mb-2">You have no positions yet</h2>
-              <p className="text-base-content/70 mb-6 max-w-sm">
+              <p className="text-base-content mb-6 max-w-sm">
                 Start trading on the markets page to build your portfolio.
               </p>
               <Link href={routes.markets} className="btn btn-primary">
@@ -251,7 +253,7 @@ const PortfolioPage: NextPageWithLayout = () => {
 
             {/* Positions Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-              {positions.map(({ position, record, marketState, metadata }) => (
+              {positions.map(({ position, record, records, marketState, metadata }) => (
                 <PortfolioPositionCard
                   key={position.marketId}
                   marketId={position.marketId}
@@ -259,13 +261,14 @@ const PortfolioPage: NextPageWithLayout = () => {
                   marketState={marketState}
                   metadata={metadata || undefined}
                   positionRecord={record}
+                  positionRecords={records}
                   onRedeem={loadPortfolio}
                 />
               ))}
             </div>
 
             {positions.length > 0 && (
-              <div className="mt-8 text-center text-sm text-base-content/60">
+              <div className="mt-8 text-center text-sm text-base-content">
                 Showing {positions.length} position{positions.length !== 1 ? 's' : ''} | Auto-refreshes every 30 seconds
               </div>
             )}

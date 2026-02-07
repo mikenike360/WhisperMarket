@@ -27,7 +27,7 @@ export const PriceDisplay: React.FC<PriceDisplayProps> = ({
     <div className="card bg-base-100 shadow-xl mb-6 rounded-xl">
       <div className="card-body">
         <h3 className="card-title mb-1">Probability / Price per share</h3>
-        <p className="text-sm text-base-content/60 mb-4" title="¢ = cents per share">
+        <p className="text-sm text-base-content mb-4" title="¢ = cents per share">
           Price per share in cents (¢). YES + NO = 100¢.
         </p>
 
@@ -35,7 +35,7 @@ export const PriceDisplay: React.FC<PriceDisplayProps> = ({
           <span className="text-success font-bold text-2xl sm:text-3xl">
             <AnimatedPrice priceBps={priceYes} decimals={1} showChange />
           </span>
-          <span className="text-base-content/60 text-sm font-medium">YES</span>
+          <span className="text-base-content text-sm font-medium">YES</span>
         </div>
         <div className="flex w-full rounded-full overflow-hidden bg-base-200 h-4 mb-4">
           <div
@@ -52,7 +52,7 @@ export const PriceDisplay: React.FC<PriceDisplayProps> = ({
           <span className="text-error font-bold text-2xl sm:text-3xl">
             <AnimatedPrice priceBps={priceNo} decimals={1} showChange />
           </span>
-          <span className="text-base-content/60 text-sm font-medium">NO</span>
+          <span className="text-base-content text-sm font-medium">NO</span>
         </div>
       </div>
     </div>

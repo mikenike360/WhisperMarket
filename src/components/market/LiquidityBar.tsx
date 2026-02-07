@@ -30,8 +30,8 @@ export function LiquidityBar({
     <div className={className}>
       {showLabel && (
         <div className="flex justify-between items-center mb-1">
-          <span className="text-xs text-base-content/60">Liquidity</span>
-          <span className="text-xs font-medium text-base-content/80">
+          <span className="text-xs text-base-content">Liquidity</span>
+          <span className="text-xs font-medium text-base-content">
             {poolCredits.toLocaleString(undefined, {
               minimumFractionDigits: 0,
               maximumFractionDigits: 2,

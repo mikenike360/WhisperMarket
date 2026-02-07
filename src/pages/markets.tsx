@@ -221,10 +221,10 @@ const MarketsPage: NextPageWithLayout = () => {
         <div className="mb-6 flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
             <h1 className="text-3xl sm:text-4xl font-bold mb-1">Markets</h1>
-            <p className="text-base-content/70 text-sm sm:text-base">
+            <p className="text-base-content text-sm sm:text-base">
               Browse available markets and place your predictions
               {!loading && markets.length > 0 && (
-                <span className="ml-2 text-base-content/60">· {markets.length} market{markets.length !== 1 ? 's' : ''}</span>
+                <span className="ml-2 text-base-content">· {markets.length} market{markets.length !== 1 ? 's' : ''}</span>
               )}
             </p>
           </div>
@@ -300,7 +300,7 @@ const MarketsPage: NextPageWithLayout = () => {
           <div className="card bg-base-200 shadow-xl">
             <div className="card-body">
               <h2 className="card-title text-warning">No Markets Match</h2>
-              <p className="text-base-content/80">
+              <p className="text-base-content">
                 {markets.length === 0
                   ? 'No markets have been discovered on-chain yet. Markets will appear here once they are initialized.'
                   : 'No markets match your search or category filter. Try changing the filter or search.'}
@@ -332,7 +332,7 @@ const MarketsPage: NextPageWithLayout = () => {
                       {market.state && getStatusBadge(market.state.status)}
                     </div>
 
-                    <p className="text-sm text-base-content/70 mb-4 line-clamp-2">
+                    <p className="text-sm text-base-content mb-4 line-clamp-2">
                       {market.description}
                     </p>
 
@@ -345,11 +345,11 @@ const MarketsPage: NextPageWithLayout = () => {
                         <div className="flex justify-between text-sm mb-2">
                           <span className="text-success font-bold">
                             <AnimatedPrice priceBps={priceYes} decimals={1} showChange />{' '}
-                            <span className="text-base-content/60 font-normal text-xs">YES</span>
+                            <span className="text-base-content font-normal text-xs">YES</span>
                           </span>
                           <span className="text-error font-bold">
                             <AnimatedPrice priceBps={priceNo} decimals={1} showChange />{' '}
-                            <span className="text-base-content/60 font-normal text-xs">NO</span>
+                            <span className="text-base-content font-normal text-xs">NO</span>
                           </span>
                         </div>
                         <div className="flex w-full rounded-full overflow-hidden bg-base-200 h-3 mb-2">
@@ -366,7 +366,7 @@ const MarketsPage: NextPageWithLayout = () => {
                           collateralPool={market.state.collateralPool}
                           className="mb-2"
                         />
-                        <div className="flex justify-between text-xs text-base-content/60">
+                        <div className="flex justify-between text-xs text-base-content">
                           <span>Fee: {(market.state.feeBps / 100).toFixed(2)}%</span>
                         </div>
 

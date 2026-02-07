@@ -47,7 +47,7 @@ export function HeaderStats() {
   if (!stats) return null;
 
   return (
-    <div className="hidden lg:flex items-center gap-4 text-xs text-base-content/70">
+    <div className="hidden lg:flex items-center gap-4 text-xs text-base-content">
       <span className="font-medium">{stats.activeMarkets} Active Markets</span>
     </div>
   );

@@ -147,7 +147,7 @@ export function TransactionTracker() {
                 )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <code className="text-xs text-base-content/70 truncate max-w-[140px]" title={tx.id}>
+                <code className="text-xs text-base-content truncate max-w-[140px]" title={tx.id}>
                   {truncateId(tx.id)}
                 </code>
                 <button

@@ -110,7 +110,7 @@ export const AdminMarketCard: React.FC<AdminMarketCardProps> = ({
         </div>
 
         {metadata?.description && (
-          <p className="text-sm text-base-content/70 mb-4">
+          <p className="text-sm text-base-content mb-4">
             {metadata.description}
           </p>
         )}
@@ -228,13 +228,13 @@ export const AdminMarketCard: React.FC<AdminMarketCardProps> = ({
           )}
 
           {marketState?.status === 1 && (
-            <div className="text-sm text-base-content/60">
+            <div className="text-sm text-base-content">
               Market resolved. No actions available.
             </div>
           )}
 
           {!marketState && (
-            <div className="text-sm text-base-content/60">
+            <div className="text-sm text-base-content">
               Loading market state...
             </div>
           )}

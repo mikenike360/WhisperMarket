@@ -214,3 +214,14 @@ Styles for Swiper slider
 .wallet-adapter-dropdown .wallet-adapter-button {
   @apply bg-base-100 text-base-content ;
 }
+
+/* Force opaque white text on landing page (overrides DaisyUI link opacity) */
+.landing-opaque-text {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+/* Override theme hydration flash: force "Why WhisperMarket" and other landing headings to stay white */
+#features h2 {
+  color: #ffffff !important;
+}

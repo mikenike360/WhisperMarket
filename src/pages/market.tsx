@@ -143,7 +143,7 @@ const MarketPage: NextPageWithLayout = () => {
           <div className="card bg-base-200 shadow-xl max-w-2xl mx-auto">
             <div className="card-body">
               <h2 className="card-title text-warning">Market ID Required</h2>
-              <p className="text-base-content/80">
+              <p className="text-base-content">
                 Please specify a market ID in the URL query parameter.
               </p>
               <div className="divider">Usage</div>
@@ -165,7 +165,7 @@ const MarketPage: NextPageWithLayout = () => {
           <div className="card bg-base-200 shadow-xl max-w-2xl mx-auto">
             <div className="card-body">
               <h2 className="card-title text-warning">Program Not Deployed</h2>
-              <p className="text-base-content/80">
+              <p className="text-base-content">
                 The prediction market program (<code className="badge badge-ghost">{PREDICTION_MARKET_PROGRAM_ID}</code>) 
                 has not been deployed to the network yet, or the market ID <code className="badge badge-ghost">{marketId}</code> does not exist.
               </p>
@@ -221,7 +221,7 @@ const MarketPage: NextPageWithLayout = () => {
         <div className="mb-4">
           <Link
             href={routes.markets}
-            className="inline-flex items-center gap-2 text-base-content/70 hover:text-base-content text-sm font-medium"
+            className="inline-flex items-center gap-2 text-base-content hover:text-base-content text-sm font-medium"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />

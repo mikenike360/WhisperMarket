@@ -1419,21 +1419,43 @@ export async function redeemPrivate(
   if (isIntentOnlyWallet(wallet)) {
     const requestRecordsFn = resolveRequestRecordsFn(wallet, requestRecords);
     if (requestRecordsFn) {
-      let allRecords: unknown[] = [];
-      try {
-        allRecords = await requestPositionRecords(requestRecordsFn, true);
-      } catch {
-        allRecords = [];
-      }
-      if (allRecords.length > 0) {
-        const positionRecord = findPositionRecordForMarket(allRecords, marketId);
-        if (positionRecord) {
-          const inputs = [`${marketId}field`, positionRecord, outcome ? 'true' : 'false'];
-          const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, false, [1], { forShield: true });
-          const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-          const txId = extractTransactionId(result);
-          if (txId) return String(txId).trim();
+      let positionRecordToUse: any = existingPosition;
+      if (positionRecordToUse == null) {
+        let allRecords: any[] = [];
+        try {
+          allRecords = (await requestPositionRecords(requestRecordsFn, true)) as any[];
+        } catch {
+          allRecords = [];
         }
+        if (allRecords.length > 0) {
+          const normalizedMarketId = normalizeMarketId(marketId);
+          const marketIdCore = marketIdNumericCore(marketId);
+          const matches = allRecords.filter((r: any) => {
+            if (isRecordSpent(r)) return false;
+            const recordData = r?.data ?? r;
+            let marketMatch = false;
+            if (recordData && recordData.market_id != null) {
+              const recordMarketId = extractFieldValue(recordData.market_id);
+              if (recordMarketId === normalizedMarketId || (marketIdCore && marketIdNumericCore(recordMarketId) === marketIdCore)) marketMatch = true;
+            }
+            if (!marketMatch) {
+              const plaintext = getPositionPlaintext(r);
+              if (typeof plaintext === 'string' && plaintext.length > 0) {
+                const extracted = extractMarketIdFromPlaintext(plaintext);
+                marketMatch = Boolean(extracted !== null && (extracted === normalizedMarketId || (marketIdCore && marketIdNumericCore(extracted) === marketIdCore)));
+              }
+            }
+            return marketMatch;
+          });
+          positionRecordToUse = pickRecordToRedeem(matches, outcome);
+        }
+      }
+      if (positionRecordToUse != null) {
+        const inputs = [`${marketId}field`, positionRecordToUse, outcome ? 'true' : 'false'];
+        const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, false, [1], { forShield: true });
+        const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+        const txId = extractTransactionId(result);
+        if (txId) return String(txId).trim();
       }
     }
     throw new Error('No position record for this market. Refresh records and try again.');
@@ -2011,7 +2033,6 @@ export async function getAllUserPositions(
           existing.position.collateralCommitted += position.collateralCommitted;
           existing.position.yesShares += position.yesShares;
           existing.position.noShares += position.noShares;
-          if (position.payoutClaimed) existing.position.payoutClaimed = true;
           existing.records.push(record);
         } else {
           byMarket.set(position.marketId, {
@@ -2025,10 +2046,29 @@ export async function getAllUserPositions(
     }
 
     return Array.from(byMarket.entries()).map(([, { position, records }]) => {
+      // Only consider position fully redeemed when ALL records have payout_claimed (so user can redeem remaining records until then)
+      const allClaimed = records.every((r) => {
+        try {
+          return parsePositionRecord(r).payoutClaimed;
+        } catch {
+          return true;
+        }
+      });
+      position.payoutClaimed = allClaimed;
+
+      // Prefer a record that has not been redeemed yet (so Redeem button uses a record that can actually be redeemed)
+      const unclaimedRecords = records.filter((r) => {
+        try {
+          return !parsePositionRecord(r).payoutClaimed;
+        } catch {
+          return false;
+        }
+      });
+      const candidates = unclaimedRecords.length > 0 ? unclaimedRecords : records;
       const bestRecord =
-        records.length <= 1
-          ? records[0]
-          : records.reduce((best, r) => {
+        candidates.length <= 1
+          ? candidates[0]
+          : candidates.reduce((best, r) => {
               try {
                 const pos = parsePositionRecord(r);
                 const bestPos = parsePositionRecord(best);
@@ -2037,9 +2077,54 @@ export async function getAllUserPositions(
                 return best;
               }
             });
-      return { position, record: bestRecord };
+      return { position, record: bestRecord, records };
     });
   } catch {
     return [];
   }
+}
+
+/**
+ * Pick a position record that can be redeemed for the given resolved outcome.
+ * 1. Filter to unspent records only.
+ * 2. Filter to records that match the resolved outcome: YES -> yesShares > 0, NO -> noShares > 0.
+ * 3. Exclude records that already have payout_claimed.
+ * Returns the record with the most winning shares, or null if none.
+ */
+export function pickRecordToRedeem(records: any[], outcome: boolean | null): any | null {
+  if (!records?.length || outcome === null) return null;
+
+  const unspent = records.filter((r) => !isRecordSpent(r));
+  if (unspent.length === 0) return null;
+
+  const redeemable = unspent.filter((r) => {
+    try {
+      const pos = parsePositionRecord(r);
+      if (pos.payoutClaimed) return false;
+      if (outcome === true) {
+        return pos.yesShares > 0; // YES wins: only records with yes shares
+      }
+      if (outcome === false) {
+        return pos.noShares > 0; // NO wins: only records with no shares; exclude yes-only records
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  });
+
+  if (redeemable.length === 0) return null;
+  if (redeemable.length === 1) return redeemable[0];
+
+  return redeemable.reduce((best, r) => {
+    try {
+      const pos = parsePositionRecord(r);
+      const bestPos = parsePositionRecord(best);
+      const bestWinning = outcome ? bestPos.yesShares : bestPos.noShares;
+      const curWinning = outcome ? pos.yesShares : pos.noShares;
+      return curWinning >= bestWinning ? r : best;
+    } catch {
+      return best;
+    }
+  });
 }

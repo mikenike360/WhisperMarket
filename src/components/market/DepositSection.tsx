@@ -104,7 +104,7 @@ export const DepositSection: React.FC<DepositSectionProps> = ({
     <div className="card bg-base-100 shadow-xl rounded-xl">
       <div className="card-body">
         <h3 className="card-title text-base mb-2">Add collateral</h3>
-        <p className="text-sm text-base-content/70 mb-2">
+        <p className="text-sm text-base-content mb-2">
           Deposit credits into this market to buy YES or NO shares. Your collateral stays in your position until you redeem.
         </p>
         {isOpen && (

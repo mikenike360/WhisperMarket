@@ -114,7 +114,7 @@ export function ScrollingTicker() {
     return (
       <div className="hidden md:block fixed top-16 sm:top-20 z-20 w-full bg-base-200 border-b border-base-300 h-10 overflow-hidden">
         <div className="flex items-center justify-center h-full">
-          <span className="text-xs text-base-content/60">Loading markets...</span>
+          <span className="text-xs text-base-content">Loading markets...</span>
         </div>
       </div>
     );
@@ -124,7 +124,7 @@ export function ScrollingTicker() {
     return (
       <div className="hidden md:block fixed top-16 sm:top-20 z-20 w-full bg-base-200 border-b border-base-300 h-10 overflow-hidden">
         <div className="flex items-center justify-center h-full">
-          <span className="text-xs text-base-content/60">No active markets</span>
+          <span className="text-xs text-base-content">No active markets</span>
         </div>
       </div>
     );
@@ -137,7 +137,7 @@ export function ScrollingTicker() {
           <Link
             key={`${item.marketId}-${idx}`}
             href={`${routes.market}?marketId=${encodeURIComponent(item.marketId)}`}
-            className="flex items-center gap-4 px-6 h-full whitespace-nowrap hover:bg-base-300 transition-colors text-sm text-base-content/90 hover:text-base-content flex-shrink-0"
+            className="flex items-center gap-4 px-6 h-full whitespace-nowrap hover:bg-base-300 transition-colors text-sm text-base-content flex-shrink-0"
           >
             <span className="font-semibold truncate max-w-[200px]">{item.title}</span>
             <span className="text-success font-medium">
@@ -146,10 +146,10 @@ export function ScrollingTicker() {
             <span className="text-error font-medium">
               NO {formatPriceCents(item.priceNo, { decimals: 1 })}
             </span>
-            <span className="text-base-content/60">
+            <span className="text-base-content">
               Pool: {toCredits(item.pool).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} credits
             </span>
-            <span className="text-base-content/40">•</span>
+            <span className="text-base-content">•</span>
           </Link>
         ))}
       </div>
