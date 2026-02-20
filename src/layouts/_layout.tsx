@@ -129,14 +129,17 @@ export default function Layout({
   const isLanding = router.pathname === '/';
 
   return (
-    <div className={`flex min-h-screen flex-col ${isLanding ? 'bg-transparent text-base-content' : 'bg-base-100 text-base-content'}`}>
+    <div
+      className={`flex min-h-screen flex-col ${isLanding ? 'bg-transparent text-base-content' : 'bg-base-100 text-base-content'}`}
+      data-landing={isLanding ? 'true' : undefined}
+    >
       {isLanding && <VoxelShaderBackground />}
       <Header />
       <ScrollingTicker />
       <main
         className={`mb-12 flex flex-grow flex-col ${
           isLanding
-            ? 'pt-20 sm:pt-28 md:pt-32 bg-transparent'
+            ? 'relative z-10 pt-20 sm:pt-28 md:pt-32 bg-transparent'
             : 'pt-28 sm:pt-32 md:pt-36 bg-base-100'
         }`}
       >

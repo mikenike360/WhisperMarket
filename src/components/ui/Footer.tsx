@@ -11,7 +11,7 @@ interface FooterProps {
 export default function Footer({ isLanding = false }: FooterProps) {
   return (
     <footer
-      className={`py-10 px-4 sm:px-6 lg:px-8 text-sm border-t ${isLanding ? '' : 'bg-base-100 text-base-content border-base-200'}`}
+      className={`py-10 px-4 sm:px-6 lg:px-8 text-sm border-t ${isLanding ? 'relative z-10' : 'bg-base-100 text-base-content border-base-200'}`}
       style={isLanding ? { backgroundColor: '#171717', borderColor: '#404040' } : undefined}
     >
       <div className="max-w-6xl mx-auto">

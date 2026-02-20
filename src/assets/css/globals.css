@@ -215,13 +215,39 @@ Styles for Swiper slider
   @apply bg-base-100 text-base-content ;
 }
 
-/* Force opaque white text on landing page (overrides DaisyUI link opacity) */
+/* Force opaque white text on landing page (overrides DaisyUI / theme) */
 .landing-opaque-text {
   color: #ffffff !important;
   opacity: 1 !important;
 }
 
-/* Override theme hydration flash: force "Why WhisperMarket" and other landing headings to stay white */
-#features h2 {
+/*
+ * Landing page: theme can be wrong (e.g. data-theme="wireframe" with no such theme)
+ * or base-content can use opacity. Force main + footer to full opacity so inline
+ * white text is visible, and force all text nodes to solid white.
+ */
+[data-landing="true"] main,
+[data-landing="true"] main *,
+[data-landing="true"] footer,
+[data-landing="true"] footer * {
+  opacity: 1 !important;
+}
+
+/* Text and headings: solid white (exclude buttons/badges so they keep semantic colors) */
+[data-landing="true"] main h1,
+[data-landing="true"] main h2,
+[data-landing="true"] main h3,
+[data-landing="true"] main p,
+[data-landing="true"] main a:not(.btn),
+[data-landing="true"] main li,
+[data-landing="true"] main .card-title,
+[data-landing="true"] main .card-body,
+[data-landing="true"] #features,
+[data-landing="true"] #features *:not(.btn):not([class*="btn"]),
+[data-landing="true"] footer,
+[data-landing="true"] footer a,
+[data-landing="true"] footer h3,
+[data-landing="true"] footer p,
+[data-landing="true"] footer li {
   color: #ffffff !important;
 }

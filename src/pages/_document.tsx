@@ -40,8 +40,8 @@ class CustomDocument extends Document {
                     if (storedTheme) {
                       document.documentElement.setAttribute('data-theme', storedTheme);
                     } else {
-                      // If no theme is stored, default to "wireframe":
-                      document.documentElement.setAttribute('data-theme', 'wireframe');
+                      // Must match a theme in globals.css (black, luxury, forest, synthwave)
+                      document.documentElement.setAttribute('data-theme', 'black');
                     }
                   } catch (e) {
                     // On error, fall back to "luxury":
