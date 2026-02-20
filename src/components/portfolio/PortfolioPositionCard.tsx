@@ -41,7 +41,7 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
   const [redeemError, setRedeemError] = useState<string | null>(null);
 
   const truncatedId = `${marketId.slice(0, 8)}...${marketId.slice(-8)}`;
-  const totalCollateral = position.collateralAvailable + position.collateralCommitted;
+  const totalShares = position.yesShares + position.noShares;
 
   const copyMarketId = () => {
     navigator.clipboard.writeText(marketId);
@@ -189,11 +189,11 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
             <div className="stat-desc text-xs">credits</div>
           </div>
           <div className="stat py-2">
-            <div className="stat-title text-xs">Total Collateral</div>
+            <div className="stat-title text-xs">Total Shares</div>
             <div className="stat-value text-lg text-primary">
-              {toCredits(totalCollateral).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
+              {toCredits(totalShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </div>
-            <div className="stat-desc text-xs">credits</div>
+            <div className="stat-desc text-xs">credits (YES + NO)</div>
           </div>
         </div>
 

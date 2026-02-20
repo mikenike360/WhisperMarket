@@ -14,9 +14,14 @@ export function clearMarketStateCache(): void {
 
 /**
  * Get market state (AMM-based). Cached per marketId for 45 seconds to reduce API load.
+ * Pass { bypassCache: true } when building a tx (e.g. Buy YES/NO) so reserves match chain at submit time.
  */
-export async function getMarketState(marketId: string): Promise<MarketState> {
-  const cached = marketStateCache.get(marketId);
+export async function getMarketState(
+  marketId: string,
+  options?: { bypassCache?: boolean }
+): Promise<MarketState> {
+  const useCache = !options?.bypassCache;
+  const cached = useCache ? marketStateCache.get(marketId) : undefined;
   if (cached && Date.now() - cached.timestamp < MARKET_STATE_CACHE_TTL_MS) {
     return cached.data;
   }
@@ -56,7 +61,9 @@ export async function getMarketState(marketId: string): Promise<MarketState> {
       feeBps: Number(feeBps),
       isPaused,
     };
-    marketStateCache.set(marketId, { data: state, timestamp: Date.now() });
+    if (useCache) {
+      marketStateCache.set(marketId, { data: state, timestamp: Date.now() });
+    }
     return state;
   } catch (error: any) {
     throw error;

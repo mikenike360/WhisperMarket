@@ -7,10 +7,10 @@ import { WalletMultiButton } from '@provablehq/aleo-wallet-adaptor-react-ui';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { useTheme } from 'next-themes';
 import Footer from '@/components/ui/Footer';
-import { TransactionTracker } from '@/components/transactions/TransactionTracker';
 import { ScrollingTicker } from '@/components/ui/ScrollingTicker';
-import { HeaderStats } from '@/components/ui/HeaderStats';
 import VoxelShaderBackground from '@/components/ui/VoxelShaderBackground';
+import { fetchUserCollateral } from '@/lib/aleo/rpc';
+import { toCredits } from '@/utils/credits';
 import routes from '@/config/routes';
 
 require('@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css');
@@ -47,10 +47,38 @@ function ThemeSelector() {
   );
 }
 
+function HeaderCashBalance() {
+  const { publicKey, address } = useWallet();
+  const userAddress = publicKey || address;
+  const [cashBalance, setCashBalance] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!userAddress) {
+      setCashBalance(null);
+      return;
+    }
+    let cancelled = false;
+    fetchUserCollateral(userAddress).then((balance) => {
+      if (!cancelled) setCashBalance(balance);
+    }).catch(() => {
+      if (!cancelled) setCashBalance(null);
+    });
+    return () => { cancelled = true; };
+  }, [userAddress]);
+
+  if (!userAddress || cashBalance === null) return null;
+  return (
+    <span className="text-sm font-medium text-base-content" title={`Cash: ${toCredits(cashBalance).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits`}>
+      Cash: {toCredits(cashBalance).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+    </span>
+  );
+}
+
 function HeaderRightArea() {
   return (
     <div className="relative order-last flex shrink-0 items-center gap-2 sm:gap-4 lg:gap-6">
       <ThemeSelector />
+      <HeaderCashBalance />
       <WalletMultiButton />
     </div>
   );
@@ -115,7 +143,6 @@ export default function Layout({
         {children}
       </main>
       <Footer isLanding={isLanding} />
-      <TransactionTracker />
     </div>
   );
 }

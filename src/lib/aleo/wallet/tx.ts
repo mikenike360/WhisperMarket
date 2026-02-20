@@ -9,7 +9,7 @@
  */
 
 import type { TransactionOptions } from '@provablehq/aleo-types';
-import { normalizeCreditsRecordInput, redactForLog, sanitizeRecordForShield } from './recordSanitizer';
+import { normalizeCreditsRecordInput, normalizePositionRecordInput, redactForLog, sanitizeRecordForShield, stripQuotesAndNewlines } from './recordSanitizer';
 
 const DEBUG_RECORD_INPUTS =
   typeof process !== 'undefined' &&
@@ -53,6 +53,8 @@ function normalizePrimitive(input: unknown, _index: number): string {
 
 export type CreateTransactionOptionsParams = {
   forShield?: boolean;
+  /** Indices of inputs that are Position records (use Position normalizer for ABI). */
+  positionRecordIndices?: number[];
 };
 
 /**
@@ -70,6 +72,7 @@ export function createTransactionOptions(
   options?: CreateTransactionOptionsParams
 ): TransactionOptions {
   const forShield = options?.forShield === true;
+  const positionRecordIndices = options?.positionRecordIndices ?? [];
   const processedInputs: unknown[] = inputs.map((input, index) => {
     if (isRecordSlot(index, recordIndices)) {
       const beforeStr =
@@ -78,7 +81,9 @@ export function createTransactionOptions(
           : typeof input === 'object' && input !== null
             ? JSON.stringify(input).slice(0, 80)
             : String(input);
-      let result = recordToInputForAdapter(input);
+      const isPositionSlot = positionRecordIndices.includes(index);
+      let result = isPositionSlot ? normalizePositionRecordInput(input) : recordToInputForAdapter(input);
+      if (isPositionSlot) result = stripQuotesAndNewlines(result);
       if (forShield) result = sanitizeRecordForShield(result);
       if (!result || result.trim() === '') {
         throw new Error(`Record input #${index} normalized to empty string. Ensure a valid record is provided.`);

@@ -1,23 +1,25 @@
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
-import {
-  swapCollateralForYesPrivate,
-  swapCollateralForNoPrivate,
-} from '@/lib/aleo/rpc';
+import { getMarketState, getAllUserPositions, mintYesOnlyPrivate, mintNoOnlyPrivate, mintPairsForBuyPrivate } from '@/lib/aleo/rpc';
+import { PREDICTION_MARKET_PROGRAM_ID } from '@/types';
 import { isIntentOnlyWallet } from '@/lib/aleo/wallet/adapter';
-import { calculateSwapOutput } from '@/utils/positionHelpers';
+import { normalizeMarketId } from '@/lib/aleo/rpc/positionRecords';
+import { calculateSwapOutput, calculateSwapOutputPart, calculateMintNetOutput, calculateMintMinOutput } from '@/utils/positionHelpers';
 import { toMicrocredits, toCredits } from '@/utils/credits';
 import { MarketState, UserPosition } from '@/types';
+import routes from '@/config/routes';
 
 interface BuyFormProps {
   marketId: string;
   marketState: MarketState | null;
   userPosition: UserPosition | null;
   userPositionRecord: any;
+  /** Global Cash balance (microcredits). Used for sufficient-balance check when present. */
+  globalBalance?: number;
   isOpen: boolean;
   isPaused: boolean;
   onTransactionSubmitted?: (txId: string, label?: string) => void;
-  /** Pass from parent so Shield/wallet can fetch and pass position record when buying shares. */
   requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>;
 }
 
@@ -30,6 +32,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
   userPositionRecord,
   isOpen,
   isPaused,
+  globalBalance,
   onTransactionSubmitted,
   requestRecords: requestRecordsProp,
 }) => {
@@ -37,13 +40,14 @@ export const BuyForm: React.FC<BuyFormProps> = ({
   const requestRecords = requestRecordsProp ?? requestRecordsHook;
   const userAddress = publicKey || address;
   const [amount, setAmount] = useState<string>('');
-  const [side, setSide] = useState<'yes' | 'no'>('yes');
+  const [side, setSide] = useState<'yes' | 'no' | 'equal'>('yes');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [estimatedOutputMicrocredits, setEstimatedOutputMicrocredits] = useState<number | null>(null);
   const hasPosition = userPosition !== null;
+  const balanceForCheck = globalBalance ?? userPosition?.collateralAvailable ?? 0;
 
-  // Calculate estimated output when amount or side changes (all amounts in microcredits)
+  // Calculate estimated output when amount or side changes.
   useEffect(() => {
     if (!marketState || !amount) {
       setEstimatedOutputMicrocredits(null);
@@ -58,13 +62,16 @@ export const BuyForm: React.FC<BuyFormProps> = ({
 
     try {
       const collateralInMicrocredits = toMicrocredits(collateralInCredits);
-      const output = calculateSwapOutput(
-        collateralInMicrocredits,
-        marketState.yesReserve,
-        marketState.noReserve,
-        marketState.feeBps,
-        side
-      );
+      const output =
+        side === 'equal'
+          ? calculateMintNetOutput(collateralInMicrocredits, marketState.feeBps)
+          : calculateSwapOutput(
+              collateralInMicrocredits,
+              marketState.yesReserve,
+              marketState.noReserve,
+              marketState.feeBps,
+              side
+            );
       setEstimatedOutputMicrocredits(output);
     } catch (err) {
       setEstimatedOutputMicrocredits(null);
@@ -98,28 +105,18 @@ export const BuyForm: React.FC<BuyFormProps> = ({
     setError(null);
 
     try {
-      // Use the position record when available (from parent state). For Leo we have it after load; for Shield we use it when the page has it (e.g. after deposit + refresh or after loadUserPosition).
-      const positionRecord = userPositionRecord ?? undefined;
-
-      if (requestRecords && !isIntentOnlyWallet(wallet) && userPosition && userPosition.collateralAvailable < buyMicrocredits) {
+      if (requestRecords && !isIntentOnlyWallet(wallet) && balanceForCheck < buyMicrocredits) {
         throw new Error(
-          `Insufficient available collateral. Available: ${toCredits(userPosition.collateralAvailable).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits`
+          `Insufficient balance. Available: ${toCredits(balanceForCheck).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits`
         );
       }
 
-      const expectedOutput = calculateSwapOutput(
-        buyMicrocredits,
-        marketState.yesReserve,
-        marketState.noReserve,
-        marketState.feeBps,
-        side
-      );
-
-      const minOutput = Math.floor(expectedOutput * (1 - SLIPPAGE_TOLERANCE));
-
       let txId: string;
-      if (side === 'yes') {
-        txId = await swapCollateralForYesPrivate(
+      if (side === 'equal') {
+        // Mint equal: use current state and position (same as before).
+        const positionRecord = userPositionRecord ?? undefined;
+        const minOutput = calculateMintMinOutput(buyMicrocredits, marketState.feeBps, SLIPPAGE_TOLERANCE);
+        txId = await mintPairsForBuyPrivate(
           wallet,
           userAddress,
           marketId,
@@ -133,22 +130,61 @@ export const BuyForm: React.FC<BuyFormProps> = ({
           requestRecords ?? undefined
         );
       } else {
-        txId = await swapCollateralForNoPrivate(
-          wallet,
-          userAddress,
-          marketId,
-          positionRecord,
+        // Buy YES / Buy NO: refetch state and position so they match chain (avoids proving failed).
+        const freshState = await getMarketState(marketId, { bypassCache: true });
+        let freshPositionRecord: any = undefined;
+        try {
+          const allPositions = await getAllUserPositions(wallet, PREDICTION_MARKET_PROGRAM_ID, requestRecords ?? undefined);
+          const normalizedId = normalizeMarketId(marketId);
+          const forMarket = allPositions.find(
+            (p) => normalizeMarketId(p.position.marketId) === normalizedId
+          );
+          freshPositionRecord = forMarket?.record ?? undefined;
+        } catch {
+          freshPositionRecord = userPositionRecord ?? undefined;
+        }
+
+        // min_yes_out / min_no_out are bounds on the swap output only, not total (net + swap)
+        const swapOutput = calculateSwapOutputPart(
           buyMicrocredits,
-          minOutput,
-          marketState.yesReserve,
-          marketState.noReserve,
-          marketState.feeBps,
-          0,
-          requestRecords ?? undefined
+          freshState.yesReserve,
+          freshState.noReserve,
+          freshState.feeBps,
+          side
         );
+        const minOutput = Math.floor(swapOutput * (1 - SLIPPAGE_TOLERANCE));
+        txId =
+          side === 'yes'
+            ? await mintYesOnlyPrivate(
+                wallet,
+                userAddress,
+                marketId,
+                freshPositionRecord,
+                buyMicrocredits,
+                minOutput,
+                freshState.yesReserve,
+                freshState.noReserve,
+                freshState.feeBps,
+                0,
+                requestRecords ?? undefined
+              )
+            : await mintNoOnlyPrivate(
+                wallet,
+                userAddress,
+                marketId,
+                freshPositionRecord,
+                buyMicrocredits,
+                minOutput,
+                freshState.yesReserve,
+                freshState.noReserve,
+                freshState.feeBps,
+                0,
+                requestRecords ?? undefined
+              );
       }
 
-      onTransactionSubmitted?.(txId, side === 'yes' ? 'Buy YES' : 'Buy NO');
+      const label = side === 'equal' ? 'Mint equal' : side === 'yes' ? 'Buy YES' : 'Buy NO';
+      onTransactionSubmitted?.(txId, label);
       setAmount('');
     } catch (err: any) {
       setError(err.message || 'Failed to buy shares');
@@ -162,7 +198,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
       <div className="card-body">
         <h3 className="card-title text-base mb-2">Buy shares</h3>
         <p className="text-sm text-base-content mb-4">
-          Use your available collateral to buy YES or NO. Add collateral above if you have none.
+          Use your available Cash to buy YES or NO shares. Add Cash on the <Link href={routes.portfolio} className="link link-hover font-medium">Portfolio</Link> page if you have none.
         </p>
 
         {error && (
@@ -173,12 +209,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
 
         {requestRecords && !isIntentOnlyWallet(wallet) && !hasPosition && (
           <div className="alert alert-info mb-4 text-sm">
-            <span>Add collateral in the section above first, then come back to buy shares.</span>
-          </div>
-        )}
-        {(!requestRecords || isIntentOnlyWallet(wallet)) && (
-          <div className="alert alert-info mb-4 text-sm">
-            <span>After adding collateral, click &quot;Refresh records&quot; (or wait a moment) so your position is loaded, then buy shares.</span>
+            <span>Use your available Cash to buy YES or NO shares. Add Cash on the <Link href={routes.portfolio} className="link link-hover font-medium">Portfolio</Link> page if you have none.</span>
           </div>
         )}
 
@@ -217,12 +248,36 @@ export const BuyForm: React.FC<BuyFormProps> = ({
             >
               NO
             </button>
+            <button
+              className={`btn btn-sm flex-1 ${side === 'equal' ? 'btn-primary' : 'btn-outline btn-primary'}`}
+              onClick={() => setSide('equal')}
+              disabled={loading}
+              title="Mint equal YES and NO (mint_pairs_private)"
+            >
+              Equal
+            </button>
           </div>
         </div>
 
         {estimatedOutputMicrocredits !== null && amount && (
           <p className="text-sm text-base-content mb-3">
-            Estimated {side.toUpperCase()} shares: <strong>{toCredits(estimatedOutputMicrocredits).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}</strong> credits
+            {side === 'equal' ? (
+              <>
+                Estimated: <strong>{toCredits(estimatedOutputMicrocredits).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}</strong> YES and{' '}
+                <strong>{toCredits(estimatedOutputMicrocredits).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}</strong> NO credits
+              </>
+            ) : (
+              <>
+                Estimated {side.toUpperCase()} shares:{' '}
+                <strong>
+                  {toCredits(estimatedOutputMicrocredits).toLocaleString(undefined, {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 6,
+                  })}
+                </strong>{' '}
+                credits
+              </>
+            )}
           </p>
         )}
 
@@ -239,6 +294,8 @@ export const BuyForm: React.FC<BuyFormProps> = ({
         >
           {loading ? (
             <span className="loading loading-spinner loading-sm"></span>
+          ) : side === 'equal' ? (
+            'Mint equal shares'
           ) : (
             `Buy ${side.toUpperCase()}`
           )}

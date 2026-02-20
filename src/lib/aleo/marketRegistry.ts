@@ -10,7 +10,6 @@
  * For each market_id, we fetch:
  * - `market_status[market_id]` → status (0=open, 1=resolved, 2=paused)
  * - `market_metadata_hash[market_id]` → metadata hash
- * - `market_creator[market_id]` → creator address
  * - `last_price_update[market_id]` → last price update timestamp
  * 
  * This replaces the previous transaction-based discovery approach with a more
@@ -22,14 +21,12 @@ import {
   getMarketIdAtIndex,
   fetchMarketMappingValue,
   fetchMarketMappingValueString,
-  fetchMarketCreator,
 } from './rpc/chainRead';
 
 export interface MarketRegistryEntry {
   marketId: string;
   status: number | null; // 0=open, 1=resolved, 2=paused
   metadataHash: string | null;
-  creator: string | null;
   lastPriceUpdate: number | null;
 }
 
@@ -89,8 +86,8 @@ export async function getAllMarketsFromChain(
 
 /**
  * Fetch registry data for a single market
- * Gets status, metadata_hash, creator, and last_price_update
- * 
+ * Gets status, metadata_hash, and last_price_update (creator not stored on-chain)
+ *
  * @param marketId - Market ID to fetch data for
  * @returns MarketRegistryEntry with data, or null if market doesn't exist
  */
@@ -98,21 +95,16 @@ export async function getMarketRegistryData(
   marketId: string
 ): Promise<MarketRegistryEntry | null> {
   try {
-    // Fetch all market data in parallel
-    const [status, metadataHash, creator, lastPriceUpdate] = await Promise.allSettled([
+    const [status, metadataHash, lastPriceUpdate] = await Promise.allSettled([
       fetchMarketMappingValue('market_status', marketId).catch(() => null),
       fetchMarketMappingValueString('market_metadata_hash', marketId).catch(() => null),
-      fetchMarketCreator(marketId).catch(() => null),
       fetchMarketMappingValue('last_price_update', marketId).catch(() => null),
     ]);
 
-    // Extract values from Promise.allSettled results
     const statusValue = status.status === 'fulfilled' ? status.value : null;
     const metadataHashValue = metadataHash.status === 'fulfilled' ? metadataHash.value : null;
-    const creatorValue = creator.status === 'fulfilled' ? creator.value : null;
     const lastPriceUpdateValue = lastPriceUpdate.status === 'fulfilled' ? lastPriceUpdate.value : null;
 
-    // If status is null, market doesn't exist
     if (statusValue === null) {
       return null;
     }
@@ -121,7 +113,6 @@ export async function getMarketRegistryData(
       marketId,
       status: statusValue !== null ? Number(statusValue) : null,
       metadataHash: metadataHashValue,
-      creator: creatorValue,
       lastPriceUpdate: lastPriceUpdateValue !== null ? Number(lastPriceUpdateValue) : null,
     };
   } catch {
@@ -129,7 +120,6 @@ export async function getMarketRegistryData(
       marketId,
       status: null,
       metadataHash: null,
-      creator: null,
       lastPriceUpdate: null,
     };
   }
@@ -181,7 +171,6 @@ export async function getAllMarketsWithData(
           marketId,
           status: null,
           metadataHash: null,
-          creator: null,
           lastPriceUpdate: null,
         });
       }

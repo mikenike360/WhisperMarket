@@ -10,7 +10,6 @@ export type CreateMarketMetadataInput = {
   title: string;
   description: string;
   category?: string;
-  creator_address?: string;
   transaction_id?: string;
   metadata_hash?: string;
 };
@@ -20,7 +19,6 @@ export type PendingMarketMetadataInput = {
   title: string;
   description: string;
   category?: string;
-  creator_address?: string;
   metadata_hash?: string;
 };
 
@@ -40,7 +38,7 @@ export async function savePendingMarketMetadata(data: PendingMarketMetadataInput
       title: data.title,
       description: data.description,
       category: data.category ?? 'General',
-      creator_address: data.creator_address ?? null,
+      creator_address: null,
       metadata_hash: data.metadata_hash ?? null,
       created_at: new Date().toISOString(),
     }, {
@@ -73,7 +71,6 @@ export async function getPendingMarketMetadata(transactionId: string): Promise<P
       title: data.title,
       description: data.description,
       category: data.category,
-      creator_address: data.creator_address,
       metadata_hash: data.metadata_hash,
     };
   } catch {
@@ -105,7 +102,6 @@ export async function finalizePendingMarketMetadata(
       title: pending.title,
       description: pending.description,
       category: pending.category,
-      creator_address: pending.creator_address ?? undefined,
       transaction_id: transactionId,
       metadata_hash: pending.metadata_hash ?? undefined,
     });
@@ -132,7 +128,7 @@ export async function createMarketMetadata(data: CreateMarketMetadataInput): Pro
       title: data.title,
       description: data.description,
       category: data.category ?? 'General',
-      creator_address: data.creator_address ?? null,
+      creator_address: null,
       transaction_id: data.transaction_id ?? null,
       metadata_hash: data.metadata_hash ?? null,
     }, {
@@ -185,15 +181,14 @@ export async function getMarketsMetadata(marketIds: string[]): Promise<Record<st
 
 /**
  * Save market metadata for markets that don't exist in Supabase yet
- * Uses registry data (creator, metadata_hash) when available
- * 
- * @param markets - Array of market registry entries to save
+ * Uses registry data (metadata_hash) when available
+ *
+ * @param markets - Array of { marketId, metadataHash } to save
  * @returns Number of markets successfully saved
  */
 export async function saveMissingMarketMetadata(
   markets: Array<{
     marketId: string;
-    creator: string | null;
     metadataHash: string | null;
   }>
 ): Promise<number> {
@@ -246,8 +241,8 @@ export async function saveMissingMarketMetadata(
                 const stored = localStorage.getItem(key);
                 if (stored) {
                   const parsed = JSON.parse(stored);
-                  // Check if this pending metadata matches our market (by creator and recent timestamp)
-                  if (parsed.creatorAddress === market.creator && 
+                  // Match pending metadata by metadata_hash and recent timestamp
+                  if (parsed.metadataHash === market.metadataHash &&
                       Date.now() - parsed.timestamp < 300000) { // Within 5 minutes
                     pendingMetadata = parsed;
                     break;
@@ -270,7 +265,7 @@ export async function saveMissingMarketMetadata(
           title,
           description,
           category: pendingMetadata?.category || 'General',
-          creator_address: market.creator ?? null,
+          creator_address: null,
           metadata_hash: pendingMetadata?.metadataHash ?? market.metadataHash ?? null,
         }, {
           onConflict: 'market_id',
@@ -288,7 +283,7 @@ export async function saveMissingMarketMetadata(
                   const stored = localStorage.getItem(key);
                   if (stored) {
                     const parsed = JSON.parse(stored);
-                    if (parsed.creatorAddress === market.creator && 
+                    if (parsed.metadataHash === market.metadataHash &&
                         Date.now() - parsed.timestamp < 300000) {
                       localStorage.removeItem(key);
                       break;

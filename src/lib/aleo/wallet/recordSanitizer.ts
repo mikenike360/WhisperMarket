@@ -28,18 +28,37 @@ function isCiphertext(s: string): boolean {
 }
 
 /**
- * Sanitize a string that may have surrounding quotes and escaped newlines.
- * Collapses newlines to spaces so the wallet gets a single-line struct string.
+ * Strip double-quotes and \\n newline characters from record plaintext.
+ * Wallet/site often returns plaintext wrapped in quotes with escaped newlines; remove so the adapter can parse.
+ * Exported for use in tx layer so the final value sent to the wallet is always cleaned.
+ */
+export function stripQuotesAndNewlines(s: string): string {
+  let out = s.trim();
+  // Remove surrounding double-quotes (repeat in case of nested wrapping)
+  while (out.length >= 2 && out.startsWith('"') && out.endsWith('"')) {
+    out = out.slice(1, -1).trim();
+  }
+  // Remove literal \n and \r (backslash + n/r) so they don't break parsing
+  out = out.replace(/\\n/g, ' ');
+  out = out.replace(/\\r/g, ' ');
+  // Replace any real newline characters with space
+  out = out.replace(/\r\n?|\n/g, ' ');
+  // Collapse whitespace to single line
+  out = out.replace(/\s+/g, ' ').trim();
+  return out;
+}
+
+/**
+ * Sanitize record plaintext from wallet/site: remove surrounding quotes and
+ * all newlines/blank lines so the wallet adapter can parse it.
  */
 function sanitizeString(s: string): string {
-  let out = s.trim();
-  // Strip surrounding double quotes if present
-  if (out.length >= 2 && out.startsWith('"') && out.endsWith('"')) {
-    out = out.slice(1, -1);
+  let out = stripQuotesAndNewlines(s);
+  // Also strip single quotes (in case of alternate wrapping)
+  while (out.length >= 2 && out.startsWith("'") && out.endsWith("'")) {
+    out = out.slice(1, -1).trim();
   }
-  // Replace literal \n (backslash + n) with actual newline
-  out = out.replace(/\\n/g, '\n');
-  // Normalize whitespace: collapse multiple spaces/newlines to single space (single-line struct)
+  out = out.replace(/\u2028|\u2029/g, ' ');
   out = out.replace(/\s+/g, ' ').trim();
   return out;
 }
@@ -117,7 +136,8 @@ export function normalizeCreditsRecordInput(recordLike: unknown): string {
 
     const extracted = extractPlaintextFromObject(obj);
     if (extracted) {
-      return normalizeCreditsRecordInput(extracted);
+      // Wallet/site often returns plaintext with double-quotes and \n; strip so the adapter can parse
+      return normalizeCreditsRecordInput(sanitizeString(extracted));
     }
 
     throw new Error(
@@ -126,6 +146,40 @@ export function normalizeCreditsRecordInput(recordLike: unknown): string {
   }
 
   throw new Error(`Invalid record input: expected string or object, got ${typeof recordLike}.`);
+}
+
+/**
+ * Normalize Position record for executeTransaction. Same logic as credits: sanitize and pass through.
+ * No parse/rebuild — pass the decrypted plaintext through (strip quotes and \\n) so the wallet sees the same format it produced.
+ * (Stripping to 6 ABI fields fixes prover but breaks wallet parse; full plaintext parses but prover may fail.)
+ */
+export function normalizePositionRecordInput(recordLike: unknown): string {
+  if (recordLike === null || recordLike === undefined) {
+    throw new Error('Position record input is null or undefined.');
+  }
+
+  if (typeof recordLike === 'string') {
+    const s = recordLike.trim();
+    if (isCiphertext(s)) {
+      throw new Error('Position record: ciphertext is not accepted. Pass the decrypted record.');
+    }
+    return sanitizeString(recordLike);
+  }
+
+  if (typeof recordLike === 'object' && recordLike !== null) {
+    const obj = recordLike as Record<string, unknown>;
+
+    const extracted = extractPlaintextFromObject(obj);
+    if (extracted) {
+      return normalizePositionRecordInput(sanitizeString(extracted));
+    }
+
+    throw new Error(
+      'Position record object has no decrypted/plaintext field. Pass plaintext (recordPlaintext, plaintext, record, value, data) or a Leo-shaped object.'
+    );
+  }
+
+  throw new Error(`Invalid Position record input: expected string or object, got ${typeof recordLike}.`);
 }
 
 /**

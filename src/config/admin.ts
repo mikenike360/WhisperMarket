@@ -1,8 +1,8 @@
 /**
  * Admin configuration and utilities
- * Admin address matches the Leo program ADMIN constant
+ * Only this wallet can access the admin panel (must match Leo program ADMIN if enforced on-chain).
  */
-export const ADMIN_ADDRESS = 'aleo1xh0ncflwkfzga983lwujsha729c8nwu7phfn8aw7h3gahhj0ms8qytrxec';
+export const ADMIN_ADDRESS = 'aleo12c37wnemh8568n6cmnlcsglh9x8fj6yc2wtzfm3fz9342j7sdczqjpv05a';
 
 /** Message the admin must sign to access the admin panel */
 export const ADMIN_SIGN_IN_MESSAGE_PREFIX = 'Sign in to WhisperMarket Admin.\n\n';

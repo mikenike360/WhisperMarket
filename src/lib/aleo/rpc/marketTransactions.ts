@@ -112,11 +112,11 @@ async function preflightRecordValidation(
 
 /**
  * Preflight market ID collision check.
- * market_id = hash(creator || metadata_hash || salt); no counter. We don't compute BHP256 in JS,
- * so we skip chain collision check here. Init reverts on-chain if (creator, metadata_hash, salt) was already used.
+ * market_id uses domain-separated multi-hash: hash(hash(1+metadata) || hash(2+salt) || hash(3+creator)).
+ * We don't compute BHP256 in JS, so we skip chain collision check here.
+ * Init reverts on-chain if (metadata_hash, salt, creator) produces a duplicate market_id.
  */
 async function preflightMarketIdCheck(
-  _creator: string,
   _metadataHash: string,
   _salt: string
 ): Promise<{ marketId: string; collision: boolean }> {
@@ -129,9 +129,10 @@ async function preflightMarketIdCheck(
  * @param publicKey - Public key of the user
  * @param initialLiquidity - Initial liquidity amount (in microcredits, u64)
  * @param bondAmount - Creation bond amount (in microcredits, u64)
+ * @param creatorLiquidity - Creator-owned liquidity bucket (in microcredits, u64); default 0
  * @param feeBps - Fee in basis points (u64, max 1000 = 10%)
  * @param metadataHash - Metadata hash (field)
- * @param salt - Salt for market_id = hash(creator || metadata_hash || salt) (field)
+ * @param salt - Salt for market_id domain-separated hash(metadata_hash, salt, creator) (field)
  * @param creditRecord - Credit record for payment (record object or string) - DEPRECATED: will be selected internally
  * @param requestRecords - Optional requestRecords function from useWallet hook (preferred method)
  */
@@ -140,6 +141,7 @@ export async function initMarket(
   publicKey: string,
   initialLiquidity: number,
   bondAmount: number,
+  creatorLiquidity: number = 0,
   feeBps: number,
   metadataHash: string,
   salt: string,
@@ -155,14 +157,13 @@ export async function initMarket(
   const saltField = salt.endsWith('field') ? salt : `${salt}field`;
   const fee = getFeeForFunction('init');
 
-  // init() inputs (0-based): 0=initial_liquidity, 1=bond_amount, 2=fee_bps, 3=metadata_hash, 4=salt, 5=credit_record.
-  // If an error says "input #5", it may be 1-based (meaning salt at our index 4) or 0-based (meaning record at our index 5).
+  // init() inputs (0-based): 0=initial_liquidity, 1=bond_amount, 2=creator_liquidity, 3=fee_bps, 4=metadata_hash, 5=salt, 6=credit_record.
 
   // Shield: fetch decrypted records and pass plaintext string; only use intent path when requestRecords unavailable or decrypt fails.
   if (isIntentOnlyWallet(wallet)) {
     if (requestRecordsFn) {
       const feeAmount = getFeeForFunction('init');
-      const requiredMicrocredits = bondAmount + initialLiquidity + feeAmount;
+      const requiredMicrocredits = bondAmount + initialLiquidity + creatorLiquidity + feeAmount;
       let allRecords: unknown[] | null = null;
       try {
         allRecords = await requestRecordsFn(CREDITS_PROGRAM_ID, true);
@@ -191,6 +192,7 @@ export async function initMarket(
         const inputs = [
           `${initialLiquidity}u64`,
           `${bondAmount}u64`,
+          `${creatorLiquidity}u64`,
           `${feeBps}u64`,
           `${metadataHash}field`,
           saltField,
@@ -202,7 +204,7 @@ export async function initMarket(
           inputs,
           fee,
           false,
-          [5],
+          [6],
           { forShield: true }
         );
         const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
@@ -217,7 +219,7 @@ export async function initMarket(
     throw new Error('Unable to fetch credit records. Ensure your wallet supports requestRecords and you have credits.');
   }
 
-  const spendAmount = bondAmount + initialLiquidity;
+  const spendAmount = bondAmount + initialLiquidity + creatorLiquidity;
   const feeAmount = getFeeForFunction('init');
 
   // Request decrypted records so we pass plaintext to executeTransaction (same as Shield / Leo).
@@ -284,11 +286,12 @@ export async function initMarket(
   const recordValidation = await preflightRecordValidation(records.spendRecord, spendAmount, publicKey, chainHeight);
   if (!recordValidation.valid) throw new Error(`Preflight validation failed: ${recordValidation.error}`);
 
-  await preflightMarketIdCheck(publicKey, metadataHash, salt);
+  await preflightMarketIdCheck(metadataHash, salt);
 
   const inputs = [
     `${initialLiquidity}u64`,
     `${bondAmount}u64`,
+    `${creatorLiquidity}u64`,
     `${feeBps}u64`,
     `${metadataHash}field`,
     saltField,
@@ -301,7 +304,7 @@ export async function initMarket(
     inputs,
     fee,
     true,
-    [5],
+    [6],
     { forShield: false }
   );
 
@@ -340,16 +343,36 @@ export async function initMarket(
 
 
 /**
- * Open position (first-time) - Creates initial Position record.
- * When creditRecord is omitted (e.g. Shield), uses Shield record path or intent path.
+ * Open position - Creates empty Position record for a market (required before trading).
+ * No credit transfer; use deposit_global_private to add balance.
  */
 export async function openPositionPrivate(
   wallet: any,
-  publicKey: string,
+  _publicKey: string,
   marketId: string,
-  creditRecord: string | undefined,
-  amount: number,
   statusHint: number = 0,
+  _requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>
+): Promise<string> {
+  const walletAdapter = findWalletAdapter(wallet);
+  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
+
+  const fee = getFeeForFunction('open_position_private');
+  const inputs = [`${marketId}field`, `${statusHint}u8`];
+  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'open_position_private', inputs, fee, false, [], { forShield: false });
+  const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return txId;
+}
+
+/**
+ * Deposit to global collateral balance (not market-specific).
+ */
+export async function depositGlobalPrivate(
+  wallet: any,
+  publicKey: string,
+  amount: number,
+  creditRecord: string | undefined,
   requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>
 ): Promise<string> {
   const walletAdapter = findWalletAdapter(wallet);
@@ -360,121 +383,102 @@ export async function openPositionPrivate(
     throw new Error(`Invalid deposit amount: ${amount} microcredits`);
   }
 
-  const fee = getFeeForFunction('open_position_private');
+  const fee = getFeeForFunction('deposit_global_private');
 
   if (creditRecord != null && !isIntentOnlyWallet(wallet) && hasRequestRecords(wallet)) {
-    const inputs = [`${marketId}field`, creditRecord, `${amountU64}u64`, `${statusHint}u8`];
-    const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'open_position_private', inputs, fee, true, [1], { forShield: false });
-    const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
+    const inputs = [creditRecord, `${amountU64}u64`];
+    const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'deposit_global_private', inputs, fee, true, [0], { forShield: false });
+    const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
     const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
     return txId;
   }
 
-  if (isIntentOnlyWallet(wallet)) {
-    const requestRecordsFn = resolveRequestRecordsFn(wallet, requestRecords);
-    if (requestRecordsFn) {
-      let allRecords: unknown[] | null = null;
-      try {
-        allRecords = await requestRecordsFn(CREDITS_PROGRAM_ID, true);
-      } catch {
-        allRecords = null;
-      }
-      if (allRecords && allRecords.length > 0) {
-        const requiredMicrocredits = amountU64 + fee;
-        let unspentRecords = filterUnspentRecords(allRecords);
-        if (unspentRecords.length === 0) {
-          unspentRecords = allRecords.map((r) => ({ record: r, value: 1, id: null } as { record: unknown; value: number; id: string | null }));
-        }
-        const picked = pickRecordForAmount(unspentRecords, requiredMicrocredits);
-        const chosenRecord = picked ? picked.record : unspentRecords[0].record;
-        const inputs = [`${marketId}field`, chosenRecord, `${amountU64}u64`, `${statusHint}u8`];
-        const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'open_position_private', inputs, fee, false, [1], { forShield: true });
-        const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
-        const txId = extractTransactionId(result);
-        if (txId) return txId;
-      }
+  if (isIntentOnlyWallet(wallet) && requestRecords) {
+    let allRecords: unknown[] = [];
+    try {
+      allRecords = await requestRecords(CREDITS_PROGRAM_ID, true);
+    } catch {
+      allRecords = [];
     }
-    throw new Error('No credit record available. Refresh records or ensure your wallet supports requestRecords.');
+    const unspent = filterUnspentRecords(allRecords);
+    if (unspent.length === 0 && allRecords.length > 0) {
+      const withVal = allRecords.map((r) => ({ record: r, value: 1, id: null } as { record: unknown; value: number; id: string | null }));
+      const picked = pickRecordForAmount(withVal, amountU64 + fee);
+      const chosen = picked ? picked.record : withVal[0].record;
+      const inputs = [chosen, `${amountU64}u64`];
+      const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'deposit_global_private', inputs, fee, false, [0], { forShield: true });
+      const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+      const txId = extractTransactionId(result);
+      if (txId) return String(txId).trim();
+    } else if (unspent.length > 0) {
+      const picked = pickRecordForAmount(unspent, amountU64 + fee);
+      const chosen = picked ? picked.record : unspent[0].record;
+      const inputs = [chosen, `${amountU64}u64`];
+      const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'deposit_global_private', inputs, fee, false, [0], { forShield: true });
+      const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+      const txId = extractTransactionId(result);
+      if (txId) return String(txId).trim();
+    }
   }
 
-  throw new Error('No credit record available. Refresh records or ensure your wallet supports requestRecords.');
+  throw new Error('No credit record available. Use requestRecords to pass a credit record.');
 }
 
 /**
- * Deposit private - Adds collateral to existing Position.
- * When creditRecord or existingPosition omitted (e.g. Shield), uses Shield record path or intent path.
+ * Withdraw from global collateral balance to private credits.
+ * On-chain balance is read in the program; no hint parameter.
  */
-export async function depositPrivate(
+export async function withdrawGlobalPrivate(
+  wallet: any,
+  _publicKey: string,
+  amount: number,
+  _requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>
+): Promise<string> {
+  const walletAdapter = findWalletAdapter(wallet);
+  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
+
+  const amountU64 = Math.floor(Number(amount));
+  if (amountU64 < 1) {
+    throw new Error('Invalid withdraw amount');
+  }
+
+  const fee = getFeeForFunction('withdraw_global_private');
+  const inputs = [`${amountU64}u64`];
+  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_global_private', inputs, fee, true, [], { forShield: false });
+  const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return txId;
+}
+
+/**
+ * Mint equal YES+NO with collateral (v2: mint_pairs_private).
+ * Uses the same min for both min_yes_out and min_no_out (mint gives equal amounts).
+ * Use this for the buy flow when adding collateral to receive equal YES and NO.
+ */
+export async function mintPairsForBuyPrivate(
   wallet: any,
   publicKey: string,
   marketId: string,
-  creditRecord: string | undefined,
-  amount: number,
   existingPosition: string | undefined,
+  collateralIn: number,
+  minOutput: number,
+  yesReserve: number,
+  noReserve: number,
+  feeBps: number,
   statusHint: number = 0,
   requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>
 ): Promise<string> {
-  const walletAdapter = findWalletAdapter(wallet);
-  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
-
-  const amountU64 = Math.floor(Number(amount));
-  if (amountU64 < 1 || amountU64 > Number.MAX_SAFE_INTEGER) {
-    throw new Error(`Invalid deposit amount: ${amount} microcredits`);
-  }
-
-  const fee = getFeeForFunction('deposit_private');
-
-  if (creditRecord != null && existingPosition != null && !isIntentOnlyWallet(wallet) && hasRequestRecords(wallet)) {
-    const inputs = [`${marketId}field`, creditRecord, `${amountU64}u64`, existingPosition, `${statusHint}u8`];
-    const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'deposit_private', inputs, fee, true, [1, 3], { forShield: false });
-    const result = await executeTransactionWithLog(walletAdapter, transactionOptions);
-    const txId = extractTransactionId(result);
-    if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
-    return txId;
-  }
-
-  if (isIntentOnlyWallet(wallet)) {
-    const requestRecordsFn = resolveRequestRecordsFn(wallet, requestRecords);
-    if (requestRecordsFn) {
-      let creditRecords: unknown[] | null = null;
-      let positionRecords: unknown[] | null = null;
-      try {
-        creditRecords = await requestRecordsFn(CREDITS_PROGRAM_ID, true);
-        positionRecords = await requestPositionRecords(requestRecordsFn, true);
-      } catch {
-        creditRecords = null;
-        positionRecords = null;
-      }
-      const requiredCredits = amountU64 + fee;
-      if (creditRecords && creditRecords.length > 0 && positionRecords && positionRecords.length > 0) {
-        let unspentCredits = filterUnspentRecords(creditRecords);
-        if (unspentCredits.length === 0) {
-          unspentCredits = creditRecords.map((r) => ({ record: r, value: 1, id: null } as { record: unknown; value: number; id: string | null }));
-        }
-        const pickedCredit = pickRecordForAmount(unspentCredits, requiredCredits);
-        const chosenCredit = pickedCredit ? pickedCredit.record : unspentCredits[0].record;
-        const positionRecord = findPositionRecordForMarket(positionRecords, marketId);
-        if (positionRecord) {
-          const inputs = [`${marketId}field`, chosenCredit, `${amountU64}u64`, positionRecord, `${statusHint}u8`];
-          const transactionOptions = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'deposit_private', inputs, fee, false, [1, 3], { forShield: true });
-          const result = (await executeTransactionWithLog(walletAdapter, transactionOptions)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-          const txId = extractTransactionId(result);
-          if (txId) return String(txId).trim();
-        }
-      }
-    }
-    throw new Error('No credit or position record available. Add collateral first and refresh records.');
-  }
-
-  throw new Error('No credit or position record available. Add collateral first and refresh records.');
+  return mintPairsPrivate(wallet, publicKey, marketId, existingPosition, collateralIn, minOutput, minOutput, yesReserve, noReserve, feeBps, statusHint, requestRecords);
 }
 
 /**
- * Swap collateral for YES shares using AMM.
- * Same pattern as init/deposit_private: when requestRecords is available, request Position records from whisper_market.aleo (decrypt: true), pass the decrypted record string to the wallet.
+ * Mint collateral into YES only (v2: mint_yes_only_private).
+ * Atomically mints equal YES+NO then swaps NO->YES inside the Leo program.
+ * Input order: market_id, existing_position, collateral_in, min_yes_out, yes_reserve, no_reserve, fee_bps, status_hint.
  */
-export async function swapCollateralForYesPrivate(
+export async function mintYesOnlyPrivate(
   wallet: any,
   publicKey: string,
   marketId: string,
@@ -490,68 +494,115 @@ export async function swapCollateralForYesPrivate(
   const walletAdapter = findWalletAdapter(wallet);
   if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
-  const fee = getFeeForFunction('swap_collateral_for_yes_private');
-  const requestRecordsFn = resolveRequestRecordsFn(wallet, requestRecords);
+  const fee = getFeeForFunction('mint_yes_only_private');
+  const inputsForPosition = (position: string | unknown) => [
+    `${marketId}field`,
+    position,
+    `${collateralIn}u64`,
+    `${minYesOut}u128`,
+    `${yesReserve}u128`,
+    `${noReserve}u128`,
+    `${feeBps}u64`,
+    `${statusHint}u8`,
+  ];
 
-  // Same as init/deposit_private: request records from program (whisper_market.aleo), get decrypted record, pass to wallet.
-  if (requestRecordsFn) {
-    let allRecords: unknown[] = [];
-    try {
-      allRecords = await requestPositionRecords(requestRecordsFn, true);
-    } catch {
-      try {
-        allRecords = await requestPositionRecords(requestRecordsFn, false);
-      } catch {
-        allRecords = [];
-      }
-    }
-    const positionRecord = allRecords.length > 0 ? findPositionRecordForMarket(allRecords, marketId, collateralIn) : null;
-    if (positionRecord) {
-      const inputs = [
-        `${marketId}field`,
-        positionRecord,
-        `${collateralIn}u64`,
-        `${minYesOut}u128`,
-        `${yesReserve}u128`,
-        `${noReserve}u128`,
-        `${feeBps}u64`,
-        `${statusHint}u8`,
-      ];
-      const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_yes_private', inputs, fee, false, [1], { forShield: isIntentOnlyWallet(wallet) });
-      const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-      const txId = extractTransactionId(result);
-      if (txId) return String(txId).trim();
-    }
-    // When wallet returned records but none matched: fall through to use existingPosition from page if available.
-  }
-
-  // Fallback: use position record from app state (e.g. from "Refresh records" or when wallet returns a different record shape).
-  if (existingPosition != null) {
-    const inputs = [
-      `${marketId}field`,
-      existingPosition,
-      `${collateralIn}u64`,
-      `${minYesOut}u128`,
-      `${yesReserve}u128`,
-      `${noReserve}u128`,
-      `${feeBps}u64`,
-      `${statusHint}u8`,
-    ];
-    const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_yes_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet) });
-    const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  // 1. Direct path: use page's existingPosition when wallet has requestRecords and is not intent-only
+  if (existingPosition != null && !isIntentOnlyWallet(wallet) && hasRequestRecords(wallet)) {
+    const inputs = inputsForPosition(existingPosition);
+    const opts = createTransactionOptions(
+      PREDICTION_MARKET_PROGRAM_ID,
+      'mint_yes_only_private',
+      inputs,
+      fee,
+      true,
+      [1],
+      { forShield: false, positionRecordIndices: [1] }
+    );
+    const result = (await executeTransactionWithLog(walletAdapter, opts)) as {
+      transactionId?: string;
+      txId?: string;
+      id?: string;
+      transaction_id?: string;
+      data?: { transactionId?: string };
+      result?: { transactionId?: string };
+    };
     const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
     return txId;
   }
 
-  throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
+  // 2. Intent-only path: request position records and use forShield: true
+  if (isIntentOnlyWallet(wallet)) {
+    const requestRecordsFn = resolveRequestRecordsFn(wallet, requestRecords);
+    if (requestRecordsFn) {
+      let allRecords: unknown[] = [];
+      try {
+        allRecords = await requestPositionRecords(requestRecordsFn, true);
+      } catch {
+        allRecords = [];
+      }
+      if (allRecords.length > 0) {
+        const positionRecord = findPositionRecordForMarket(allRecords, marketId, collateralIn);
+        if (positionRecord) {
+          const inputs = inputsForPosition(positionRecord);
+          const opts = createTransactionOptions(
+            PREDICTION_MARKET_PROGRAM_ID,
+            'mint_yes_only_private',
+            inputs,
+            fee,
+            false,
+            [1],
+            { forShield: true, positionRecordIndices: [1] }
+          );
+          const result = (await executeTransactionWithLog(walletAdapter, opts)) as {
+            transactionId?: string;
+            txId?: string;
+            id?: string;
+            transaction_id?: string;
+            data?: { transactionId?: string };
+            result?: { transactionId?: string };
+          };
+          const txId = extractTransactionId(result);
+          if (txId) return String(txId).trim();
+        }
+      }
+    }
+    throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
+  }
+
+  // 3. Fallback: use existingPosition with forShield from wallet type
+  if (existingPosition == null) {
+    throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
+  }
+  const inputs = inputsForPosition(existingPosition);
+  const opts = createTransactionOptions(
+    PREDICTION_MARKET_PROGRAM_ID,
+    'mint_yes_only_private',
+    inputs,
+    fee,
+    true,
+    [1],
+    { forShield: isIntentOnlyWallet(wallet), positionRecordIndices: [1] }
+  );
+  const result = (await executeTransactionWithLog(walletAdapter, opts)) as {
+    transactionId?: string;
+    txId?: string;
+    id?: string;
+    transaction_id?: string;
+    data?: { transactionId?: string };
+    result?: { transactionId?: string };
+  };
+  const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return txId;
 }
 
 /**
- * Swap collateral for NO shares using AMM.
- * Same pattern as init/deposit_private: when requestRecords is available, request Position records from whisper_market.aleo (decrypt: true), pass the decrypted record string to the wallet.
+ * Mint collateral into NO only (v2: mint_no_only_private).
+ * Atomically mints equal YES+NO then swaps YES->NO inside the Leo program.
+ * Input order: market_id, existing_position, collateral_in, min_no_out, yes_reserve, no_reserve, fee_bps, status_hint.
  */
-export async function swapCollateralForNoPrivate(
+export async function mintNoOnlyPrivate(
   wallet: any,
   publicKey: string,
   marketId: string,
@@ -567,61 +618,227 @@ export async function swapCollateralForNoPrivate(
   const walletAdapter = findWalletAdapter(wallet);
   if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
-  const fee = getFeeForFunction('swap_collateral_for_no_private');
-  const requestRecordsFn = resolveRequestRecordsFn(wallet, requestRecords);
+  const fee = getFeeForFunction('mint_no_only_private');
+  const inputsForPosition = (position: string | unknown) => [
+    `${marketId}field`,
+    position,
+    `${collateralIn}u64`,
+    `${minNoOut}u128`,
+    `${yesReserve}u128`,
+    `${noReserve}u128`,
+    `${feeBps}u64`,
+    `${statusHint}u8`,
+  ];
 
-  // Request Position records (try whisper_market.aleo and whisper_market), match by market_id in plaintext.
-  if (requestRecordsFn) {
-    let allRecords: unknown[] = [];
-    try {
-      allRecords = await requestPositionRecords(requestRecordsFn, true);
-    } catch {
+  // 1. Direct path: use page's existingPosition when wallet has requestRecords and is not intent-only
+  if (existingPosition != null && !isIntentOnlyWallet(wallet) && hasRequestRecords(wallet)) {
+    const inputs = inputsForPosition(existingPosition);
+    const opts = createTransactionOptions(
+      PREDICTION_MARKET_PROGRAM_ID,
+      'mint_no_only_private',
+      inputs,
+      fee,
+      true,
+      [1],
+      { forShield: false, positionRecordIndices: [1] }
+    );
+    const result = (await executeTransactionWithLog(walletAdapter, opts)) as {
+      transactionId?: string;
+      txId?: string;
+      id?: string;
+      transaction_id?: string;
+      data?: { transactionId?: string };
+      result?: { transactionId?: string };
+    };
+    const txId = extractTransactionId(result);
+    if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+    return txId;
+  }
+
+  // 2. Intent-only path: request position records and use forShield: true
+  if (isIntentOnlyWallet(wallet)) {
+    const requestRecordsFn = resolveRequestRecordsFn(wallet, requestRecords);
+    if (requestRecordsFn) {
+      let allRecords: unknown[] = [];
       try {
-        allRecords = await requestPositionRecords(requestRecordsFn, false);
+        allRecords = await requestPositionRecords(requestRecordsFn, true);
       } catch {
         allRecords = [];
       }
+      if (allRecords.length > 0) {
+        const positionRecord = findPositionRecordForMarket(allRecords, marketId, collateralIn);
+        if (positionRecord) {
+          const inputs = inputsForPosition(positionRecord);
+          const opts = createTransactionOptions(
+            PREDICTION_MARKET_PROGRAM_ID,
+            'mint_no_only_private',
+            inputs,
+            fee,
+            false,
+            [1],
+            { forShield: true, positionRecordIndices: [1] }
+          );
+          const result = (await executeTransactionWithLog(walletAdapter, opts)) as {
+            transactionId?: string;
+            txId?: string;
+            id?: string;
+            transaction_id?: string;
+            data?: { transactionId?: string };
+            result?: { transactionId?: string };
+          };
+          const txId = extractTransactionId(result);
+          if (txId) return String(txId).trim();
+        }
+      }
     }
-    const positionRecord = allRecords.length > 0 ? findPositionRecordForMarket(allRecords, marketId, collateralIn) : null;
-    if (positionRecord) {
-      const inputs = [
-        `${marketId}field`,
-        positionRecord,
-        `${collateralIn}u64`,
-        `${minNoOut}u128`,
-        `${yesReserve}u128`,
-        `${noReserve}u128`,
-        `${feeBps}u64`,
-        `${statusHint}u8`,
-      ];
-      const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_no_private', inputs, fee, false, [1], { forShield: isIntentOnlyWallet(wallet) });
-      const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
-      const txId = extractTransactionId(result);
-      if (txId) return String(txId).trim();
-    }
-    // When wallet returned records but none matched: fall through to use existingPosition from page if available.
+    throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
   }
 
-  // Fallback: use position record from app state (e.g. from "Refresh records" or when wallet returns a different record shape).
-  if (existingPosition != null) {
-    const inputs = [
-      `${marketId}field`,
-      existingPosition,
-      `${collateralIn}u64`,
-      `${minNoOut}u128`,
-      `${yesReserve}u128`,
-      `${noReserve}u128`,
-      `${feeBps}u64`,
-      `${statusHint}u8`,
-    ];
-    const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_collateral_for_no_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet) });
+  // 3. Fallback: use existingPosition with forShield from wallet type
+  if (existingPosition == null) {
+    throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
+  }
+  const inputs = inputsForPosition(existingPosition);
+  const opts = createTransactionOptions(
+    PREDICTION_MARKET_PROGRAM_ID,
+    'mint_no_only_private',
+    inputs,
+    fee,
+    true,
+    [1],
+    { forShield: isIntentOnlyWallet(wallet), positionRecordIndices: [1] }
+  );
+  const result = (await executeTransactionWithLog(walletAdapter, opts)) as {
+    transactionId?: string;
+    txId?: string;
+    id?: string;
+    transaction_id?: string;
+    data?: { transactionId?: string };
+    result?: { transactionId?: string };
+  };
+  const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return txId;
+}
+
+/**
+ * Mint equal YES+NO with collateral (v2: mint_pairs_private).
+ * When requestRecords is available, request Position records from whisper_market_v2.aleo (decrypt: true), pass the decrypted record to the wallet.
+ */
+export async function swapCollateralForYesPrivate(
+  wallet: any,
+  publicKey: string,
+  marketId: string,
+  existingPosition: string | undefined,
+  collateralIn: number,
+  minYesOut: number,
+  yesReserve: number,
+  noReserve: number,
+  feeBps: number,
+  statusHint: number = 0,
+  requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>
+): Promise<string> {
+  return mintPairsPrivate(wallet, publicKey, marketId, existingPosition, collateralIn, minYesOut, 0, yesReserve, noReserve, feeBps, statusHint, requestRecords);
+}
+
+/**
+ * Mint equal YES+NO with collateral (v2: mint_pairs_private).
+ * Input order: market_id, existing_position, collateral_in, min_yes_out, min_no_out, yes_reserve, no_reserve, fee_bps, status_hint.
+ * Branch order matches swapYesForCollateralPrivate/mergeTokensPrivate: direct path, intent-only, fallback.
+ */
+export async function mintPairsPrivate(
+  wallet: any,
+  _publicKey: string,
+  marketId: string,
+  existingPosition: string | undefined,
+  collateralIn: number,
+  minYesOut: number,
+  minNoOut: number,
+  yesReserve: number,
+  noReserve: number,
+  feeBps: number,
+  statusHint: number = 0,
+  requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>
+): Promise<string> {
+  const walletAdapter = findWalletAdapter(wallet);
+  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
+
+  const fee = getFeeForFunction('mint_pairs_private');
+  const inputsForPosition = (position: string | unknown) => [
+    `${marketId}field`,
+    position,
+    `${collateralIn}u64`,
+    `${minYesOut}u128`,
+    `${minNoOut}u128`,
+    `${yesReserve}u128`,
+    `${noReserve}u128`,
+    `${feeBps}u64`,
+    `${statusHint}u8`,
+  ];
+
+  // 1. Direct path: use page's existingPosition when wallet has requestRecords and is not intent-only
+  if (existingPosition != null && !isIntentOnlyWallet(wallet) && hasRequestRecords(wallet)) {
+    const inputs = inputsForPosition(existingPosition);
+    const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'mint_pairs_private', inputs, fee, true, [1], { forShield: false, positionRecordIndices: [1] });
     const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
     const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
     return txId;
   }
 
-  throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
+  // 2. Intent-only path: request position records and use forShield: true
+  if (isIntentOnlyWallet(wallet)) {
+    const requestRecordsFn = resolveRequestRecordsFn(wallet, requestRecords);
+    if (requestRecordsFn) {
+      let allRecords: unknown[] = [];
+      try {
+        allRecords = await requestPositionRecords(requestRecordsFn, true);
+      } catch {
+        allRecords = [];
+      }
+      if (allRecords.length > 0) {
+        const positionRecord = findPositionRecordForMarket(allRecords, marketId, collateralIn);
+        if (positionRecord) {
+          const inputs = inputsForPosition(positionRecord);
+          const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'mint_pairs_private', inputs, fee, false, [1], { forShield: true, positionRecordIndices: [1] });
+          const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+          const txId = extractTransactionId(result);
+          if (txId) return String(txId).trim();
+        }
+      }
+    }
+    throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
+  }
+
+  // 3. Fallback: use existingPosition with forShield from wallet type
+  if (existingPosition == null) {
+    throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
+  }
+  const inputs = inputsForPosition(existingPosition);
+  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'mint_pairs_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet), positionRecordIndices: [1] });
+  const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return txId;
+}
+
+/**
+ * Mint equal YES+NO with collateral (v2: mint_pairs_private), with minimum NO output.
+ */
+export async function swapCollateralForNoPrivate(
+  wallet: any,
+  publicKey: string,
+  marketId: string,
+  existingPosition: string | undefined,
+  collateralIn: number,
+  minNoOut: number,
+  yesReserve: number,
+  noReserve: number,
+  feeBps: number,
+  statusHint: number = 0,
+  requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>
+): Promise<string> {
+  return mintPairsPrivate(wallet, publicKey, marketId, existingPosition, collateralIn, 0, minNoOut, yesReserve, noReserve, feeBps, statusHint, requestRecords);
 }
 
 /**
@@ -644,7 +861,7 @@ export async function mergeTokensPrivate(
 
   if (existingPosition != null && !isIntentOnlyWallet(wallet) && hasRequestRecords(wallet)) {
     const inputs = [`${marketId}field`, existingPosition, `${mergeAmount}u128`, `${minCollateralOut}u64`];
-    const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, true, [1], { forShield: false });
+    const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, true, [1], { forShield: false, positionRecordIndices: [1] });
     const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
     const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
@@ -664,7 +881,7 @@ export async function mergeTokensPrivate(
         const positionRecord = findPositionRecordForMarket(allRecords, marketId);
         if (positionRecord) {
           const inputs = [`${marketId}field`, positionRecord, `${mergeAmount}u128`, `${minCollateralOut}u64`];
-          const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, false, [1], { forShield: true });
+          const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, false, [1], { forShield: true, positionRecordIndices: [1] });
           const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
           const txId = extractTransactionId(result);
           if (txId) return String(txId).trim();
@@ -678,33 +895,47 @@ export async function mergeTokensPrivate(
     throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
   }
   const inputs = [`${marketId}field`, existingPosition, `${mergeAmount}u128`, `${minCollateralOut}u64`];
-  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet) });
+  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'merge_tokens_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet), positionRecordIndices: [1] });
   const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
   const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
     return txId;
 }
 
+const STATUS_OPEN_HINT = 0;
+
 /**
- * Withdraw private - Withdraws available collateral (only if no shares held).
- * When existingPosition omitted (e.g. Shield), uses Shield record path or intent path.
+ * Sell YES for NO (v2: swap_yes_no_private). Output is NO tokens; use merge to get collateral.
  */
-export async function withdrawPrivate(
+export async function swapYesForCollateralPrivate(
   wallet: any,
   publicKey: string,
   marketId: string,
   existingPosition: string | undefined,
-  amount: number,
+  yesAmount: number,
+  minNoOut: number,
+  yesReserve: number,
+  noReserve: number,
+  feeBps: number,
   requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>
 ): Promise<string> {
   const walletAdapter = findWalletAdapter(wallet);
   if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
 
-  const fee = getFeeForFunction('withdraw_private');
+  const fee = getFeeForFunction('swap_yes_no_private');
 
   if (existingPosition != null && !isIntentOnlyWallet(wallet) && hasRequestRecords(wallet)) {
-    const inputs = [`${marketId}field`, existingPosition, `${amount}u64`];
-    const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_private', inputs, fee, true, [1], { forShield: false });
+    const inputs = [
+      `${marketId}field`,
+      existingPosition,
+      `${yesAmount}u128`,
+      `${minNoOut}u128`,
+      `${yesReserve}u128`,
+      `${noReserve}u128`,
+      `${feeBps}u64`,
+      `${STATUS_OPEN_HINT}u8`,
+    ];
+    const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_yes_no_private', inputs, fee, true, [1], { forShield: false, positionRecordIndices: [1] });
     const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
     const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
@@ -723,26 +954,134 @@ export async function withdrawPrivate(
       if (allRecords.length > 0) {
         const positionRecord = findPositionRecordForMarket(allRecords, marketId);
         if (positionRecord) {
-          const inputs = [`${marketId}field`, positionRecord, `${amount}u64`];
-          const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_private', inputs, fee, false, [1], { forShield: true });
+          const inputs = [
+            `${marketId}field`,
+            positionRecord,
+            `${yesAmount}u128`,
+            `${minNoOut}u128`,
+            `${yesReserve}u128`,
+            `${noReserve}u128`,
+            `${feeBps}u64`,
+            `${STATUS_OPEN_HINT}u8`,
+          ];
+          const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_yes_no_private', inputs, fee, false, [1], { forShield: true, positionRecordIndices: [1] });
           const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
           const txId = extractTransactionId(result);
           if (txId) return String(txId).trim();
         }
       }
     }
-    throw new Error('No position record for this market. Refresh records and try again.');
+    throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
   }
 
   if (existingPosition == null) {
-    throw new Error('No position record for this market. Refresh records and try again.');
+    throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
   }
-  const inputs = [`${marketId}field`, existingPosition, `${amount}u64`];
-  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet) });
+  const inputs = [
+    `${marketId}field`,
+    existingPosition,
+    `${yesAmount}u128`,
+    `${minNoOut}u128`,
+    `${yesReserve}u128`,
+    `${noReserve}u128`,
+    `${feeBps}u64`,
+    `${STATUS_OPEN_HINT}u8`,
+  ];
+  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_yes_no_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet), positionRecordIndices: [1] });
   const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
   const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return txId;
+}
+
+/**
+ * Sell NO for YES (v2: swap_no_yes_private). Output is YES tokens; use merge to get collateral.
+ */
+export async function swapNoForCollateralPrivate(
+  wallet: any,
+  publicKey: string,
+  marketId: string,
+  existingPosition: string | undefined,
+  noAmount: number,
+  minYesOut: number,
+  yesReserve: number,
+  noReserve: number,
+  feeBps: number,
+  requestRecords?: (programId: string, decrypt?: boolean) => Promise<any[]>
+): Promise<string> {
+  const walletAdapter = findWalletAdapter(wallet);
+  if (!walletAdapter) throw new Error('Wallet adapter does not support transaction execution');
+
+  const fee = getFeeForFunction('swap_no_yes_private');
+
+  if (existingPosition != null && !isIntentOnlyWallet(wallet) && hasRequestRecords(wallet)) {
+    const inputs = [
+      `${marketId}field`,
+      existingPosition,
+      `${noAmount}u128`,
+      `${minYesOut}u128`,
+      `${yesReserve}u128`,
+      `${noReserve}u128`,
+      `${feeBps}u64`,
+      `${STATUS_OPEN_HINT}u8`,
+    ];
+    const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_no_yes_private', inputs, fee, true, [1], { forShield: false, positionRecordIndices: [1] });
+    const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+    const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
     return txId;
+  }
+
+  if (isIntentOnlyWallet(wallet)) {
+    const requestRecordsFn = resolveRequestRecordsFn(wallet, requestRecords);
+    if (requestRecordsFn) {
+      let allRecords: unknown[] = [];
+      try {
+        allRecords = await requestPositionRecords(requestRecordsFn, true);
+      } catch {
+        allRecords = [];
+      }
+      if (allRecords.length > 0) {
+        const positionRecord = findPositionRecordForMarket(allRecords, marketId);
+        if (positionRecord) {
+          const inputs = [
+            `${marketId}field`,
+            positionRecord,
+            `${noAmount}u128`,
+            `${minYesOut}u128`,
+            `${yesReserve}u128`,
+            `${noReserve}u128`,
+            `${feeBps}u64`,
+            `${STATUS_OPEN_HINT}u8`,
+          ];
+          const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_no_yes_private', inputs, fee, false, [1], { forShield: true, positionRecordIndices: [1] });
+          const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+          const txId = extractTransactionId(result);
+          if (txId) return String(txId).trim();
+        }
+      }
+    }
+    throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
+  }
+
+  if (existingPosition == null) {
+    throw new Error('No position record for this market. Add collateral first, then refresh records and try again.');
+  }
+  const inputs = [
+    `${marketId}field`,
+    existingPosition,
+    `${noAmount}u128`,
+    `${minYesOut}u128`,
+    `${yesReserve}u128`,
+    `${noReserve}u128`,
+    `${feeBps}u64`,
+    `${STATUS_OPEN_HINT}u8`,
+  ];
+  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'swap_no_yes_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet), positionRecordIndices: [1] });
+  const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
+  const txId = extractTransactionId(result);
+  if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
+  return txId;
 }
 
 /**
@@ -764,7 +1103,7 @@ export async function redeemPrivate(
 
   if (existingPosition != null && !isIntentOnlyWallet(wallet) && hasRequestRecords(wallet)) {
     const inputs = [`${marketId}field`, existingPosition, outcome ? 'true' : 'false'];
-    const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, true, [1], { forShield: false });
+    const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, true, [1], { forShield: false, positionRecordIndices: [1] });
     const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
     const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
@@ -807,7 +1146,7 @@ export async function redeemPrivate(
       }
       if (positionRecordToUse != null) {
         const inputs = [`${marketId}field`, positionRecordToUse, outcome ? 'true' : 'false'];
-        const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, false, [1], { forShield: true });
+        const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, false, [1], { forShield: true, positionRecordIndices: [1] });
         const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
         const txId = extractTransactionId(result);
         if (txId) return String(txId).trim();
@@ -820,7 +1159,7 @@ export async function redeemPrivate(
     throw new Error('No position record for this market. Refresh records and try again.');
   }
   const inputs = [`${marketId}field`, existingPosition, outcome ? 'true' : 'false'];
-  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet) });
+  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'redeem_private', inputs, fee, true, [1], { forShield: isIntentOnlyWallet(wallet), positionRecordIndices: [1] });
   const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
   const txId = extractTransactionId(result);
     if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
@@ -856,7 +1195,7 @@ export async function resolveMarket(
     'resolve',
     inputs,
     fee,
-    true // payFeesPrivately
+    false // pay fees publicly so execution errors are visible
   );
 
   const result = await executeTransactionWithLog(walletAdapter, transactionOptions);

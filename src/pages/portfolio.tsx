@@ -7,10 +7,12 @@ import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import {
   getMarketState,
   getAllUserPositions,
+  fetchUserCollateral,
 } from '@/lib/aleo/rpc';
 import { UserPosition, MarketState, MarketMetadata, PREDICTION_MARKET_PROGRAM_ID } from '@/types';
 import { PortfolioPositionCard } from '@/components/portfolio/PortfolioPositionCard';
 import { PortfolioSummary } from '@/components/portfolio/PortfolioSummary';
+import { ManageCashSection } from '@/components/portfolio/ManageCashSection';
 import { getMarketsMetadata } from '@/services/marketMetadata';
 import { SkeletonCard } from '@/components/ui/SkeletonCard';
 import routes from '@/config/routes';
@@ -27,6 +29,7 @@ const PortfolioPage: NextPageWithLayout = () => {
   const walletHook = useWallet();
   const { publicKey, wallet, address, requestRecords } = walletHook as any;
   const [positions, setPositions] = useState<PositionWithData[]>([]);
+  const [globalBalance, setGlobalBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,7 +52,11 @@ const PortfolioPage: NextPageWithLayout = () => {
     setError(null);
 
     try {
-      const allPositions = await getAllUserPositions(wallet, PREDICTION_MARKET_PROGRAM_ID, requestRecords);
+      const [allPositions, balance] = await Promise.all([
+        getAllUserPositions(wallet, PREDICTION_MARKET_PROGRAM_ID, requestRecords),
+        userAddress ? fetchUserCollateral(userAddress) : Promise.resolve(0),
+      ]);
+      setGlobalBalance(balance);
 
       if (allPositions.length === 0) {
         setPositions([]);
@@ -218,6 +225,11 @@ const PortfolioPage: NextPageWithLayout = () => {
           </div>
         )}
 
+        <ManageCashSection
+          cashBalance={globalBalance}
+          onBalanceRefreshed={loadPortfolio}
+        />
+
         {loading && positions.length === 0 ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
             {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -249,6 +261,7 @@ const PortfolioPage: NextPageWithLayout = () => {
                 position: p.position,
                 marketState: p.marketState,
               }))}
+              globalBalance={globalBalance ?? undefined}
             />
 
             {/* Positions Grid */}

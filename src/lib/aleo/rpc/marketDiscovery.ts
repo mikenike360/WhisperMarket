@@ -136,7 +136,6 @@ export async function extractMarketIdFromTransaction(
       if (Array.isArray(finalizeOps) && finalizeOps.length > 0) {
         const marketMappings = [
           'market_status',
-          'market_creator',
           'market_metadata_hash',
           'market_bond',
           'market_collateral_pool',

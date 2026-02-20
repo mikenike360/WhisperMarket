@@ -17,7 +17,7 @@
 ## Tech Stack
 
 - Frontend: Next.js 15, React 19, TypeScript, Tailwind CSS, DaisyUI
-- Blockchain: Aleo (Leo program: `whisper_market.aleo`)
+- Blockchain: Aleo (Leo program: `whisper_market_v2.aleo`)
 - Wallet: Aleo Wallet Adapter (supports Leo, Puzzle, Fox, Soter, Shield wallets)
 - State management: React Query
 - Optional: Supabase for market metadata (questions, descriptions)
@@ -38,7 +38,7 @@
 
 3. Configure environment variables:
    - Create a `.env` file in the project root (or copy from `.env.example` if present)
-   - Set at least: `PROGRAM_NAME` (e.g. `whisper_market.aleo`), `RPC_URL`, and `ADDRESS` for the Leo program
+   - Set at least: `PROGRAM_NAME` (e.g. `whisper_market_v2.aleo`), `RPC_URL`, and `ADDRESS` for the Leo program
    - Optionally set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` if using Supabase for market metadata
 
 4. Build the Leo program:
@@ -67,7 +67,7 @@ The application will be available at `http://localhost:3000`
 ## Project Structure
 
 ```
-├── program/          # Leo smart contract (whisper_market.aleo)
+├── program/          # Leo smart contract (whisper_market_v2.aleo)
 │   └── src/
 │       └── main.leo
 ├── src/
@@ -105,7 +105,7 @@ The application will be available at `http://localhost:3000`
 
 ## Smart Contract
 
-The Leo program (`whisper_market.aleo`) implements a prediction market with:
+The Leo program (`whisper_market_v2.aleo`) implements a prediction market with:
 - Market initialization (bond, liquidity, fee in basis points, metadata hash)
 - Private collateral deposits and position records
 - AMM-based pricing for YES/NO shares (swap_collateral_for_yes_private / swap_collateral_for_no_private)
@@ -137,7 +137,7 @@ flowchart TB
   subgraph aleo["Aleo network"]
     RPC[RPC / Provable API]
     Chain[Blockchain]
-    Program[Leo program\nwhisper_market.aleo]
+    Program[Leo program\nwhisper_market_v2.aleo]
   end
 
   subgraph data["Metadata (optional)"]

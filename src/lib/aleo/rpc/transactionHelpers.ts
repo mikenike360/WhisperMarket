@@ -121,8 +121,8 @@ export function resolveRequestRecordsFn(
   return null;
 }
 
-/** Program ID variants some wallets use for whisper_market Position records. */
-const POSITION_PROGRAM_IDS = [PREDICTION_MARKET_PROGRAM_ID, 'whisper_market'] as const;
+/** Program ID variants some wallets use for whisper_market_v2 Position records. */
+const POSITION_PROGRAM_IDS = [PREDICTION_MARKET_PROGRAM_ID, 'whisper_market_v2', 'whisper_market'] as const;
 
 export function normalizeRecordsResponse(raw: unknown): unknown[] {
   if (Array.isArray(raw)) return raw;
@@ -133,7 +133,7 @@ export function normalizeRecordsResponse(raw: unknown): unknown[] {
 
 /**
  * Request Position records from the wallet, trying multiple program ID variants
- * (e.g. "whisper_market.aleo" and "whisper_market") so we get records regardless of wallet naming.
+ * (e.g. "whisper_market_v2.aleo" and "whisper_market_v2") so we get records regardless of wallet naming.
  */
 export async function requestPositionRecords(
   requestRecordsFn: (programId: string, decrypt?: boolean) => Promise<any[]>,
