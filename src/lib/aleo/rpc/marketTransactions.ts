@@ -1195,7 +1195,7 @@ export async function resolveMarket(
     'resolve',
     inputs,
     fee,
-    true // payFeesPrivately
+    false // pay fees publicly so execution errors are visible
   );
 
   const result = await executeTransactionWithLog(walletAdapter, transactionOptions);

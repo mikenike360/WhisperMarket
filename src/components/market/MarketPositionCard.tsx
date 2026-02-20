@@ -16,7 +16,7 @@ export const MarketPositionCard: React.FC<MarketPositionCardProps> = ({ position
         <div className="card-body">
           <h3 className="card-title text-base mb-2">Your position</h3>
           <p className="text-sm text-base-content">
-            No position yet. Add collateral below to start trading.
+            No position yet. Open a position below, then add Cash from Portfolio to start trading.
           </p>
         </div>
       </div>
@@ -24,7 +24,6 @@ export const MarketPositionCard: React.FC<MarketPositionCardProps> = ({ position
   }
 
   const available = globalBalance ?? position.collateralAvailable;
-  const totalCollateral = available + position.collateralCommitted;
   const hasUnspentCollateral = available > 0;
 
   return (
@@ -33,29 +32,22 @@ export const MarketPositionCard: React.FC<MarketPositionCardProps> = ({ position
         <h3 className="card-title text-base mb-3">Your position</h3>
         {isOpen && hasUnspentCollateral && (
           <div className="alert alert-warning py-2 mb-3 text-sm">
-            <span>Use or withdraw collateral before the market resolves. Unspent collateral cannot be withdrawn after resolution.</span>
+            <span>Use or withdraw Cash before the market resolves. Unspent Cash cannot be withdrawn after resolution.</span>
           </div>
         )}
         <div className="rounded-lg bg-primary/10 p-3 mb-3">
-          <span className="text-xs text-base-content uppercase tracking-wide">Total collateral</span>
+          <span className="text-xs text-base-content uppercase tracking-wide">Available Cash</span>
           <div className="font-semibold text-primary text-lg">
-            {toCredits(totalCollateral).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits
+            {toCredits(available).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col rounded-lg bg-base-200/60 p-3">
-            <span className="text-xs text-base-content uppercase tracking-wide">Available</span>
-            <span className="font-semibold text-primary">
-              {toCredits(available).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
-            </span>
-            <span className="text-xs text-base-content">credits (for buying)</span>
-          </div>
-          <div className="flex flex-col rounded-lg bg-base-200/60 p-3">
             <span className="text-xs text-base-content uppercase tracking-wide">Committed</span>
             <span className="font-semibold text-secondary">
-              {toCredits(position.collateralCommitted).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
+              {toCredits(position.yesShares + position.noShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </span>
-            <span className="text-xs text-base-content">credits (backing shares)</span>
+            <span className="text-xs text-base-content">credits (YES + NO shares)</span>
           </div>
           <div className="flex flex-col rounded-lg bg-success/10 p-3">
             <span className="text-xs text-base-content uppercase tracking-wide">YES shares</span>

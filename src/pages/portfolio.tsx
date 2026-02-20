@@ -12,6 +12,7 @@ import {
 import { UserPosition, MarketState, MarketMetadata, PREDICTION_MARKET_PROGRAM_ID } from '@/types';
 import { PortfolioPositionCard } from '@/components/portfolio/PortfolioPositionCard';
 import { PortfolioSummary } from '@/components/portfolio/PortfolioSummary';
+import { ManageCashSection } from '@/components/portfolio/ManageCashSection';
 import { getMarketsMetadata } from '@/services/marketMetadata';
 import { SkeletonCard } from '@/components/ui/SkeletonCard';
 import routes from '@/config/routes';
@@ -223,6 +224,11 @@ const PortfolioPage: NextPageWithLayout = () => {
             </button>
           </div>
         )}
+
+        <ManageCashSection
+          cashBalance={globalBalance}
+          onBalanceRefreshed={loadPortfolio}
+        />
 
         {loading && positions.length === 0 ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">

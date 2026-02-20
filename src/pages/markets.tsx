@@ -14,7 +14,6 @@ import { getMarketsMetadata, saveMissingMarketMetadata } from '@/services/market
 import { useTransaction } from '@/contexts/TransactionContext';
 import { SkeletonCard } from '@/components/ui/SkeletonCard';
 import { AnimatedPrice } from '@/components/ui/AnimatedPrice';
-import { LiquidityBar } from '@/components/market/LiquidityBar';
 import { useIntersectionObserver } from '@/hooks/use-intersection-observer';
 
 function defaultMetadata(marketId: string) {
@@ -316,41 +315,26 @@ const MarketsPage: NextPageWithLayout = () => {
               return (
                 <div
                   key={market.marketId}
-                  className="card bg-base-100 shadow-xl hover:shadow-2xl transition-all duration-200 cursor-pointer border border-transparent hover:border-base-300 rounded-xl hover:-translate-y-1"
+                  className="card bg-base-100 shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer border border-base-200 hover:border-base-300 rounded-xl hover:-translate-y-0.5"
                   onClick={() => handleMarketClick(market.marketId)}
                 >
-                  <div className="card-body">
-                    <div className="flex justify-between items-start gap-2 mb-2">
-                      <div className="flex-1">
-                        <h2 className="card-title text-lg leading-tight line-clamp-2">{market.title}</h2>
-                        {market.category && (
-                          <span className="badge badge-sm badge-outline mt-1">{market.category}</span>
-                        )}
-                      </div>
+                  <div className="card-body py-4">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <h2 className="card-title text-base leading-tight line-clamp-2 flex-1">{market.title}</h2>
                       {market.state && getStatusBadge(market.state.status)}
                     </div>
-
-                    <p className="text-sm text-base-content mb-4 line-clamp-2">
+                    {market.category && (
+                      <span className="badge badge-ghost badge-sm text-xs mb-2">{market.category}</span>
+                    )}
+                    <p className="text-sm text-base-content/80 line-clamp-2 mb-3">
                       {market.description}
                     </p>
 
                     {market.error ? (
-                      <div className="alert alert-error py-2">
-                        <span className="text-xs">{market.error}</span>
-                      </div>
+                      <p className="text-xs text-error mb-3">{market.error}</p>
                     ) : market.state ? (
-                      <>
-                        <div className="flex justify-between text-sm mb-2">
-                          <span className="text-success font-bold">
-                            <AnimatedPrice priceBps={priceYes} decimals={1} showChange />{' '}
-                            <span className="text-base-content font-normal text-xs">YES</span>
-                          </span>
-                          <span className="text-error font-bold">
-                            <AnimatedPrice priceBps={priceNo} decimals={1} showChange />{' '}
-                            <span className="text-base-content font-normal text-xs">NO</span>
-                          </span>
-                        </div>
-                        <div className="flex w-full rounded-full overflow-hidden bg-base-200 h-3 mb-2">
+                      <div className="space-y-2">
+                        <div className="flex w-full rounded-full overflow-hidden bg-base-200 h-2">
                           <div
                             className="bg-success h-full transition-all"
                             style={{ width: `${(priceYes / 10000) * 100}%` }}
@@ -360,29 +344,22 @@ const MarketsPage: NextPageWithLayout = () => {
                             style={{ width: `${(priceNo / 10000) * 100}%` }}
                           />
                         </div>
-                        <LiquidityBar
-                          collateralPool={market.state.collateralPool}
-                          className="mb-2"
-                        />
-                        <div className="flex justify-between text-xs text-base-content">
-                          <span>Fee: {(market.state.feeBps / 100).toFixed(2)}%</span>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-success font-medium"><AnimatedPrice priceBps={priceYes} decimals={1} showChange />¢ YES</span>
+                          <span className="text-base-content/70">
+                            Pool {toCredits(market.state.collateralPool).toLocaleString(undefined, { maximumFractionDigits: 0 })} · {(market.state.feeBps / 100).toFixed(1)}% fee
+                          </span>
+                          <span className="text-error font-medium"><AnimatedPrice priceBps={priceNo} decimals={1} showChange />¢ NO</span>
                         </div>
-
                         {market.state.outcome !== null && (
-                          <div className="alert alert-info py-2 mt-2">
-                            <span className="text-xs">
-                              Outcome: <strong>{market.state.outcome ? 'YES' : 'NO'}</strong>
-                            </span>
-                          </div>
+                          <p className="text-xs text-info">Resolved: {market.state.outcome ? 'YES' : 'NO'}</p>
                         )}
-                      </>
-                    ) : (
-                      <div className="alert alert-warning py-2">
-                        <span className="text-xs">Market not found or not initialized</span>
                       </div>
+                    ) : (
+                      <p className="text-xs text-warning mb-2">Loading…</p>
                     )}
 
-                    <div className="card-actions justify-end mt-4">
+                    <div className="card-actions justify-end mt-3">
                       <button className="btn btn-primary btn-sm">View Market</button>
                     </div>
                   </div>

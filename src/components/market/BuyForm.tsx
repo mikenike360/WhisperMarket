@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { getMarketState, getAllUserPositions, mintYesOnlyPrivate, mintNoOnlyPrivate, mintPairsForBuyPrivate } from '@/lib/aleo/rpc';
 import { PREDICTION_MARKET_PROGRAM_ID } from '@/types';
@@ -7,13 +8,14 @@ import { normalizeMarketId } from '@/lib/aleo/rpc/positionRecords';
 import { calculateSwapOutput, calculateSwapOutputPart, calculateMintNetOutput, calculateMintMinOutput } from '@/utils/positionHelpers';
 import { toMicrocredits, toCredits } from '@/utils/credits';
 import { MarketState, UserPosition } from '@/types';
+import routes from '@/config/routes';
 
 interface BuyFormProps {
   marketId: string;
   marketState: MarketState | null;
   userPosition: UserPosition | null;
   userPositionRecord: any;
-  /** Global collateral balance (microcredits). Used for sufficient-balance check when present. */
+  /** Global Cash balance (microcredits). Used for sufficient-balance check when present. */
   globalBalance?: number;
   isOpen: boolean;
   isPaused: boolean;
@@ -196,7 +198,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
       <div className="card-body">
         <h3 className="card-title text-base mb-2">Buy shares</h3>
         <p className="text-sm text-base-content mb-4">
-          Use your available collateral to buy YES or NO shares. Add collateral above if you have none.
+          Use your available Cash to buy YES or NO shares. Add Cash on the <Link href={routes.portfolio} className="link link-hover font-medium">Portfolio</Link> page if you have none.
         </p>
 
         {error && (
@@ -207,12 +209,7 @@ export const BuyForm: React.FC<BuyFormProps> = ({
 
         {requestRecords && !isIntentOnlyWallet(wallet) && !hasPosition && (
           <div className="alert alert-info mb-4 text-sm">
-            <span>Open a position for this market (in the section above) and add collateral, then buy shares.</span>
-          </div>
-        )}
-        {(!requestRecords || isIntentOnlyWallet(wallet)) && (
-          <div className="alert alert-info mb-4 text-sm">
-            <span>After adding collateral, click &quot;Refresh records&quot; (or wait a moment) so your position is loaded, then buy shares.</span>
+            <span>Use your available Cash to buy YES or NO shares. Add Cash on the <Link href={routes.portfolio} className="link link-hover font-medium">Portfolio</Link> page if you have none.</span>
           </div>
         )}
 

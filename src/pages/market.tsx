@@ -10,19 +10,15 @@ import { MarketHeader } from '@/components/market/MarketHeader';
 import { PriceDisplay } from '@/components/market/PriceDisplay';
 import { MarketPositionCard } from '@/components/market/MarketPositionCard';
 import { MarketStats } from '@/components/market/MarketStats';
-import { DepositSection } from '@/components/market/DepositSection';
-import { BuyForm } from '@/components/market/BuyForm';
-import { SellForm } from '@/components/market/SellForm';
+import { OpenPositionBlock } from '@/components/market/OpenPositionBlock';
+import { BuySellTabs } from '@/components/market/BuySellTabs';
 import { StatusBanner } from '@/components/market/StatusBanner';
 import { getMarketState, getAllUserPositions, clearMarketStateCache, fetchUserCollateral } from '@/lib/aleo/rpc';
 import { PREDICTION_MARKET_PROGRAM_ID, UserPosition } from '@/types';
 import { getMarketMetadata } from '@/services/marketMetadata';
-import { useTransaction } from '@/contexts/TransactionContext';
-
 const MarketPage: NextPageWithLayout = () => {
   const router = useRouter();
   const { publicKey, wallet, address, requestRecords } = useWallet();
-  const { addTransaction } = useTransaction();
   const userAddress = publicKey || address;
   const [marketState, setMarketState] = useState<any>(null);
   const [metadata, setMetadata] = useState<{ title: string; description: string } | null>(null);
@@ -32,9 +28,6 @@ const MarketPage: NextPageWithLayout = () => {
   const [loading, setLoading] = useState(true);
   const [refreshingRecords, setRefreshingRecords] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [transactionId, setTransactionId] = useState<string | null>(null);
-  const [dismissedTxId, setDismissedTxId] = useState<string | null>(null);
-
   const marketId = (router.query.marketId as string) || null;
 
   useEffect(() => {
@@ -110,23 +103,12 @@ const MarketPage: NextPageWithLayout = () => {
     }
   };
 
-  const handleTransactionSubmitted = (txId: string, label?: string) => {
-    addTransaction({ id: txId, label: label ?? 'Transaction' });
-    setTransactionId(txId);
-    setDismissedTxId(null);
+  const handleTransactionSubmitted = (_txId: string, _label?: string) => {
     clearMarketStateCache();
-    // Refetch immediately (cache is clear) and again after delay so we pick up updated reserves once tx is finalized
     loadMarketState();
     loadUserPosition();
-    setTimeout(() => {
-      loadMarketState();
-      loadUserPosition();
-    }, 4000);
-    setTimeout(() => {
-      loadMarketState();
-      loadUserPosition();
-    }, 8000);
-    setTimeout(() => setTransactionId((prev) => (prev === txId ? null : prev)), 10000);
+    setTimeout(() => { loadMarketState(); loadUserPosition(); }, 4000);
+    setTimeout(() => { loadMarketState(); loadUserPosition(); }, 8000);
   };
 
   const handleRefreshRecords = async () => {
@@ -245,42 +227,6 @@ const MarketPage: NextPageWithLayout = () => {
           </Link>
         </div>
 
-        {transactionId && dismissedTxId !== transactionId && (
-          <div className="alert alert-success mb-4 flex items-center justify-between gap-4 flex-wrap">
-            <span className="flex items-center gap-2 flex-wrap">
-              <span>Transaction submitted:</span>
-              <a
-                href={`https://testnet.explorer.provable.com/transaction/${transactionId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link link-hover font-mono text-sm break-all"
-              >
-                {transactionId.slice(0, 12)}…
-              </a>
-            </span>
-            <div className="flex items-center gap-2">
-              <a
-                href={`https://testnet.explorer.provable.com/transaction/${transactionId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-ghost btn-sm"
-              >
-                View in Explorer
-              </a>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm btn-circle"
-                onClick={() => setDismissedTxId(transactionId ?? null)}
-                aria-label="Dismiss"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        )}
-
         <MarketHeader
           title={displayTitle}
           description={displayDescription}
@@ -325,36 +271,25 @@ const MarketPage: NextPageWithLayout = () => {
           </div>
 
           <div className="space-y-4 lg:sticky lg:top-24 lg:self-start">
-            <DepositSection
-              marketId={marketId}
-              userPosition={userPosition}
-              userPositionRecord={userPositionRecord}
-              isOpen={marketState.status === 0}
-              globalBalance={globalBalance ?? undefined}
-              onBalanceRefreshed={loadUserPosition}
-              onTransactionSubmitted={handleTransactionSubmitted}
-            />
-            <BuyForm
-              marketId={marketId}
-              marketState={marketState}
-              userPosition={userPosition}
-              userPositionRecord={userPositionRecord}
-              globalBalance={globalBalance ?? undefined}
-              isOpen={marketState.status === 0}
-              isPaused={marketState.isPaused}
-              onTransactionSubmitted={handleTransactionSubmitted}
-              requestRecords={requestRecords}
-            />
-            <SellForm
-              marketId={marketId}
-              marketState={marketState}
-              userPosition={userPosition}
-              userPositionRecord={userPositionRecord}
-              isOpen={marketState.status === 0}
-              isPaused={marketState.isPaused}
-              onTransactionSubmitted={handleTransactionSubmitted}
-              requestRecords={requestRecords}
-            />
+            {!userPosition ? (
+              <OpenPositionBlock
+                marketId={marketId}
+                isMarketOpen={marketState.status === 0}
+                onOpened={loadUserPosition}
+                onTransactionSubmitted={() => handleTransactionSubmitted('', '')}
+              />
+            ) : (
+              <BuySellTabs
+                marketId={marketId}
+                marketState={marketState}
+                userPosition={userPosition}
+                userPositionRecord={userPositionRecord}
+                globalBalance={globalBalance ?? undefined}
+                isPaused={marketState.isPaused}
+                onTransactionSubmitted={handleTransactionSubmitted}
+                requestRecords={requestRecords}
+              />
+            )}
           </div>
         </div>
       </div>

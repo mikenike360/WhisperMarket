@@ -15,7 +15,7 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({ positions, g
   const totalMarkets = positions.length;
   const totalYesShares = positions.reduce((sum, p) => sum + p.position.yesShares, 0);
   const totalNoShares = positions.reduce((sum, p) => sum + p.position.noShares, 0);
-  const totalAvailableCollateral = globalBalance ?? positions.reduce(
+  const totalAvailableCash = globalBalance ?? positions.reduce(
     (sum, p) => sum + p.position.collateralAvailable,
     0
   );
@@ -23,7 +23,7 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({ positions, g
     (sum, p) => sum + p.position.collateralCommitted,
     0
   );
-  const totalCollateral = totalAvailableCollateral + totalCommittedCollateral;
+  const totalShares = totalYesShares + totalNoShares;
 
   // Calculate total potential payout for resolved markets
   const totalPotentialPayout = positions.reduce((sum, p) => {
@@ -63,20 +63,19 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({ positions, g
           </div>
 
           <div className="stat">
-            <div className="stat-title">Total Collateral</div>
+            <div className="stat-title">Total Cash</div>
             <div className="stat-value text-primary">
-              {toCredits(totalCollateral).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
+              {toCredits(totalAvailableCash).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </div>
             <div className="stat-desc">
-              {toCredits(totalAvailableCollateral).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} available,{' '}
-              {toCredits(totalCommittedCollateral).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} committed (credits)
+              Available to trade or withdraw (credits). {toCredits(totalCommittedCollateral).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} committed in positions.
             </div>
           </div>
 
           <div className="stat">
             <div className="stat-title">Total Shares</div>
             <div className="stat-value">
-              {toCredits(totalYesShares + totalNoShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
+              {toCredits(totalShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </div>
             <div className="stat-desc">
               {toCredits(totalYesShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} YES, {toCredits(totalNoShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} NO (credits)
