@@ -12,12 +12,12 @@ const SCALE = 10000; // Basis points scale
  */
 export function parsePositionRecord(record: any): UserPosition {
   const recordData = record.data || record;
-  
-  // Extract values, handling .private suffixes
+
+  // Extract values, handling .private suffixes. collateral_available removed in global-collateral program; default 0.
   const marketId = extractFieldValue(recordData.market_id);
   const yesShares = extractU128Value(recordData.yes_shares);
   const noShares = extractU128Value(recordData.no_shares);
-  const collateralAvailable = extractU128Value(recordData.collateral_available);
+  const collateralAvailable = recordData.collateral_available !== undefined ? extractU128Value(recordData.collateral_available) : 0;
   const collateralCommitted = extractU128Value(recordData.collateral_committed);
   const payoutClaimed = extractBoolValue(recordData.payout_claimed);
 
@@ -49,18 +49,20 @@ export function calculatePriceFromReserves(
 }
 
 /**
- * Calculate expected swap output using AMM formula
+ * Calculate expected swap output using AMM formula (matches mint_yes_only_private / mint_no_only_private).
  * When swapping collateral for YES:
- *   - Mint equal YES + NO tokens (1:1 with collateral)
- *   - Apply fee to NO tokens being swapped
- *   - Swap NO → YES: yes_out = (no_after_fee * yes_reserve) / (no_reserve + no_after_fee)
- *   - Total YES = minted_yes + yes_out
+ *   - Apply fee to collateral: net = collateral_in - (collateral_in * fee_bps / FEE_SCALE)
+ *   - Mint net YES + net NO tokens
+ *   - Swap net NO → YES: no_effective = net * (FEE_SCALE - fee_bps) / FEE_SCALE
+ *   - Swap output: yes_out = (no_effective * yes_reserve) / (no_reserve + no_effective)
+ *   - Total YES = net + yes_out
  *
  * When swapping collateral for NO:
- *   - Mint equal YES + NO tokens (1:1 with collateral)
- *   - Apply fee to YES tokens being swapped
- *   - Swap YES → NO: no_out = (yes_after_fee * no_reserve) / (yes_reserve + yes_after_fee)
- *   - Total NO = minted_no + no_out
+ *   - Apply fee to collateral: net = collateral_in - (collateral_in * fee_bps / FEE_SCALE)
+ *   - Mint net YES + net NO tokens
+ *   - Swap net YES → NO: yes_effective = net * (FEE_SCALE - fee_bps) / FEE_SCALE
+ *   - Swap output: no_out = (yes_effective * no_reserve) / (yes_reserve + yes_effective)
+ *   - Total NO = net + no_out
  *
  * Units: collateralIn, yesReserve, and noReserve must be in microcredits.
  * Return value is in microcredits. Use toCredits() for display.
@@ -89,35 +91,171 @@ export function calculateSwapOutput(
   const feeBpsU64 = BigInt(feeBps);
   const FEE_SCALE = BigInt(SCALE);
 
-  // Mint equal YES and NO tokens (1:1 with collateral)
-  const mintedYes = collateralInU128;
-  const mintedNo = collateralInU128;
+  // Step 1: Apply fee to collateral (mint fee)
+  const mintFee = (collateralInU128 * feeBpsU64) / FEE_SCALE;
+  const net = collateralInU128 - mintFee;
 
   if (side === 'yes') {
-    // Swap NO → YES
-    // Apply fee to NO tokens being swapped
-    const fee = (mintedNo * feeBpsU64) / FEE_SCALE;
-    const noAfterFee = mintedNo - fee;
-
-    // Swap NO → YES using CPMM
-    // yes_out = (no_after_fee * yes_reserve) / (no_reserve + no_after_fee)
-    const yesOut = (noAfterFee * yesReserveU128) / (noReserveU128 + noAfterFee);
-
-    // Total YES = minted_yes + yes_out
-    return Number(mintedYes + yesOut);
+    // Step 2: Swap net NO for YES
+    const noAmount = net;
+    const noEffective = (noAmount * (FEE_SCALE - feeBpsU64)) / FEE_SCALE;
+    const yesOut = (noEffective * yesReserveU128) / (noReserveU128 + noEffective);
+    // Step 3: Total YES = net (from mint) + yes_out (from swap)
+    return Number(net + yesOut);
   } else {
-    // Swap YES → NO
-    // Apply fee to YES tokens being swapped
-    const fee = (mintedYes * feeBpsU64) / FEE_SCALE;
-    const yesAfterFee = mintedYes - fee;
-
-    // Swap YES → NO using CPMM
-    // no_out = (yes_after_fee * no_reserve) / (yes_reserve + yes_after_fee)
-    const noOut = (yesAfterFee * noReserveU128) / (yesReserveU128 + yesAfterFee);
-
-    // Total NO = minted_no + no_out
-    return Number(mintedNo + noOut);
+    // Step 2: Swap net YES for NO
+    const yesAmount = net;
+    const yesEffective = (yesAmount * (FEE_SCALE - feeBpsU64)) / FEE_SCALE;
+    const noOut = (yesEffective * noReserveU128) / (yesReserveU128 + yesEffective);
+    // Step 3: Total NO = net (from mint) + no_out (from swap)
+    return Number(net + noOut);
   }
+}
+
+/**
+ * Return only the swap output (yes_out or no_out) for mint_yes_only / mint_no_only.
+ * Use this to compute min_yes_out / min_no_out: the program asserts on the swap output, not the total.
+ *
+ * @returns Swap output in microcredits (yes_out for 'yes', no_out for 'no')
+ */
+export function calculateSwapOutputPart(
+  collateralIn: number,
+  yesReserve: number,
+  noReserve: number,
+  feeBps: number,
+  side: 'yes' | 'no'
+): number {
+  if (yesReserve === 0 || noReserve === 0) {
+    throw new Error('Reserves cannot be zero');
+  }
+
+  const collateralInU128 = BigInt(collateralIn);
+  const yesReserveU128 = BigInt(yesReserve);
+  const noReserveU128 = BigInt(noReserve);
+  const feeBpsU64 = BigInt(feeBps);
+  const FEE_SCALE = BigInt(SCALE);
+
+  const mintFee = (collateralInU128 * feeBpsU64) / FEE_SCALE;
+  const net = collateralInU128 - mintFee;
+
+  if (side === 'yes') {
+    const noEffective = (net * (FEE_SCALE - feeBpsU64)) / FEE_SCALE;
+    const yesOut = (noEffective * yesReserveU128) / (noReserveU128 + noEffective);
+    return Number(yesOut);
+  } else {
+    const yesEffective = (net * (FEE_SCALE - feeBpsU64)) / FEE_SCALE;
+    const noOut = (yesEffective * noReserveU128) / (yesReserveU128 + yesEffective);
+    return Number(noOut);
+  }
+}
+
+/**
+ * Calculate net output from mint_pairs_private (equal YES and NO).
+ * Matches Leo: net = collateral_in - (collateral_in * fee_bps / FEE_SCALE)
+ *
+ * @param collateralIn - Collateral amount (microcredits)
+ * @param feeBps - Fee in basis points
+ * @returns Net amount received for each of YES and NO (microcredits)
+ */
+export function calculateMintNetOutput(
+  collateralIn: number,
+  feeBps: number
+): number {
+  const collateralInU128 = BigInt(collateralIn);
+  const feeBpsU64 = BigInt(feeBps);
+  const FEE_SCALE = BigInt(SCALE);
+  const fee = (collateralInU128 * feeBpsU64) / FEE_SCALE;
+  const net = collateralInU128 - fee;
+  return Number(net);
+}
+
+/**
+ * Calculate minimum output for mint_pairs_private with slippage.
+ * Used for both min_yes_out and min_no_out (mint gives equal amounts).
+ *
+ * @param collateralIn - Collateral amount (microcredits)
+ * @param feeBps - Fee in basis points
+ * @param slippageTolerance - Slippage tolerance (e.g. 0.01 for 1%)
+ * @returns Minimum output for each side (microcredits)
+ */
+export function calculateMintMinOutput(
+  collateralIn: number,
+  feeBps: number,
+  slippageTolerance: number
+): number {
+  const net = calculateMintNetOutput(collateralIn, feeBps);
+  const minOutput = Math.floor(net * (1 - slippageTolerance));
+  return minOutput;
+}
+
+/**
+ * Calculate collateral received when selling YES shares (v1 semantics; for display only).
+ * In v2, selling YES gives NO tokens; use calculateSellYesNoOut for min_no_out.
+ */
+export function calculateSellYesOutput(
+  yesIn: number,
+  yesReserve: number,
+  noReserve: number,
+  feeBps: number
+): number {
+  return calculateSellYesNoOut(yesIn, yesReserve, noReserve, feeBps);
+}
+
+/**
+ * v2: NO tokens received when selling YES (swap_yes_no_private). Fee on input: yes_effective = yes_amount * (FEE_SCALE - fee_bps) / FEE_SCALE; no_out = (yes_effective * no_reserve) / (yes_reserve + yes_effective).
+ */
+export function calculateSellYesNoOut(
+  yesIn: number,
+  yesReserve: number,
+  noReserve: number,
+  feeBps: number
+): number {
+  if (yesReserve === 0 || noReserve === 0) {
+    throw new Error('Reserves cannot be zero');
+  }
+  const FEE_SCALE = BigInt(SCALE);
+  const yesInU128 = BigInt(yesIn);
+  const yesReserveU128 = BigInt(yesReserve);
+  const noReserveU128 = BigInt(noReserve);
+  const feeBpsU64 = BigInt(feeBps);
+  const yesEffective = (yesInU128 * (FEE_SCALE - feeBpsU64)) / FEE_SCALE;
+  const noOut = (yesEffective * noReserveU128) / (yesReserveU128 + yesEffective);
+  return Number(noOut);
+}
+
+/**
+ * Calculate collateral received when selling NO shares (v1 semantics; for display only).
+ * In v2, selling NO gives YES tokens; use calculateSellNoYesOut for min_yes_out.
+ */
+export function calculateSellNoOutput(
+  noIn: number,
+  yesReserve: number,
+  noReserve: number,
+  feeBps: number
+): number {
+  return calculateSellNoYesOut(noIn, yesReserve, noReserve, feeBps);
+}
+
+/**
+ * v2: YES tokens received when selling NO (swap_no_yes_private). Fee on input: no_effective = no_amount * (FEE_SCALE - fee_bps) / FEE_SCALE; yes_out = (no_effective * yes_reserve) / (no_reserve + no_effective).
+ */
+export function calculateSellNoYesOut(
+  noIn: number,
+  yesReserve: number,
+  noReserve: number,
+  feeBps: number
+): number {
+  if (yesReserve === 0 || noReserve === 0) {
+    throw new Error('Reserves cannot be zero');
+  }
+  const FEE_SCALE = BigInt(SCALE);
+  const noInU128 = BigInt(noIn);
+  const yesReserveU128 = BigInt(yesReserve);
+  const noReserveU128 = BigInt(noReserve);
+  const feeBpsU64 = BigInt(feeBps);
+  const noEffective = (noInU128 * (FEE_SCALE - feeBpsU64)) / FEE_SCALE;
+  const yesOut = (noEffective * yesReserveU128) / (noReserveU128 + noEffective);
+  return Number(yesOut);
 }
 
 /**

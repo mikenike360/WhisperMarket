@@ -19,6 +19,7 @@
     "prepare": "husky install"
   },
   "dependencies": {
+    "@aleohq/sdk": "^0.6.9",
     "@provablehq/aleo-types": "^0.3.0-alpha.2",
     "@provablehq/aleo-wallet-adaptor-core": "^0.3.0-alpha.2",
     "@provablehq/aleo-wallet-adaptor-fox": "^0.3.0-alpha.2",
@@ -31,6 +32,7 @@
     "@supabase/supabase-js": "^2.47.10",
     "@tailwindcss/forms": "0.5.11",
     "@tailwindcss/typography": "0.5.19",
+    "bech32": "^2.0.0",
     "browserify-fs": "^1.0.0",
     "classnames": "2.5.1",
     "daisyui": "5.5.14",

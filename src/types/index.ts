@@ -27,8 +27,8 @@ export type NextPageWithLayout<P = {}> = NextPage<P> & {
 export const CREDITS_PROGRAM_ID = 'credits.aleo';
 
 // Prediction Market Types
-// Program ID: whisper_market.aleo
-export const PREDICTION_MARKET_PROGRAM_ID = 'whisper_market.aleo';
+// Program ID: whisper_market_v2.aleo
+export const PREDICTION_MARKET_PROGRAM_ID = 'whisper_market_v2.aleo';
 
 export type MarketState = {
   status: number; // 0=open, 1=resolved, 2=paused

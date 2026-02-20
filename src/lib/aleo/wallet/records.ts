@@ -45,32 +45,60 @@ export function areRecordsDistinct(record1: unknown, record2: unknown): boolean 
   return id1 !== id2;
 }
 
+/** Try to parse microcredits from a string (regex for "microcredits" then digits). */
+function parseMicrocreditsFromStringContent(s: string): number {
+  if (!s || typeof s !== 'string') return 0;
+  const match = s.match(/microcredits["\s:]+([0-9]+)/);
+  if (match) return parseInt(match[1], 10);
+  const fallback = s.match(/microcredits[^0-9]*([0-9]+)/);
+  if (fallback) return parseInt(fallback[1], 10);
+  return 0;
+}
+
 /**
  * Extract microcredits value from a record.
  * Leo decrypted: data.microcredits, data.Microcredits, microcredits; formats "123u64", "123u64.private".
- * Shield encrypted: recordCiphertext → treat as "has value, unknown amount" (return 1).
+ * Plaintext string fields (recordPlaintext, plaintext, record, data) are scanned for microcredits so we get the real value even when recordCiphertext is also present.
+ * Shield encrypted only: recordCiphertext with no parseable plaintext → return 1 (unknown amount).
  */
 export function extractRecordValue(record: unknown): number {
   if (!record) return 0;
   if (typeof record === 'string') {
-    const match = record.match(/microcredits["\s:]+([0-9]+)/);
-    return match ? parseInt(match[1], 10) : 0;
+    const v = parseMicrocreditsFromStringContent(record);
+    if (v > 0) return v;
+    return 0;
   }
   if (typeof record === 'object' && record !== null) {
     const r = record as Record<string, unknown>;
-    if (r.recordCiphertext) return 1;
+    // Try every source that can yield a numeric value first (so we don't treat as ciphertext-only)
+    const microcreditsRaw = r.microcredits ?? r.Microcredits;
+    if (microcreditsRaw != null) {
+      const v = parseMicrocreditsFromString(String(microcreditsRaw));
+      if (v > 0) return v;
+    }
     if (r.data) {
       const d = r.data as Record<string, unknown> | string;
       if (typeof d === 'object' && d) {
         const raw = (d.microcredits ?? d.Microcredits) as string | undefined;
-        if (raw != null) return parseMicrocreditsFromString(String(raw));
+        if (raw != null) {
+          const v = parseMicrocreditsFromString(String(raw));
+          if (v > 0) return v;
+        }
       }
       if (typeof d === 'string') {
-        const match = d.match(/microcredits["\s:]+([0-9]+)/);
-        return match ? parseInt(match[1], 10) : 0;
+        const v = parseMicrocreditsFromStringContent(d);
+        if (v > 0) return v;
       }
     }
-    if (r.microcredits != null) return parseMicrocreditsFromString(String(r.microcredits));
+    const plaintextKeys = ['recordPlaintext', 'record_plaintext', 'plaintext', 'record', 'value'] as const;
+    for (const key of plaintextKeys) {
+      const val = r[key];
+      if (typeof val === 'string' && val.trim().length > 0) {
+        const v = parseMicrocreditsFromStringContent(val);
+        if (v > 0) return v;
+      }
+    }
+    if (r.recordCiphertext) return 1;
   }
   return 0;
 }
@@ -97,15 +125,15 @@ export function filterUnspentRecords(allRecords: unknown[]): UnspentRecord[] {
     if (typeof record !== 'object' || record === null) return null;
     const r = record as Record<string, unknown>;
     if (r.spent === true) return null;
+    const value = extractRecordValue(record);
+    if (value > 0) return { record, value, id: getRecordId(record) } as UnspentRecord;
     const hasCipher =
       hasCiphertextLike(r.recordCiphertext) ||
       hasCiphertextLike(r.ciphertext) ||
       hasCiphertextLike(r.record) ||
       hasCiphertextLike(r.value);
     if (hasCipher) return { record, value: 1, id: getRecordId(record) } as UnspentRecord;
-    const value = extractRecordValue(record);
-    if (value <= 0) return null;
-    return { record, value, id: getRecordId(record) } as UnspentRecord;
+    return null;
   });
   return items.filter((item): item is UnspentRecord => item !== null);
 }

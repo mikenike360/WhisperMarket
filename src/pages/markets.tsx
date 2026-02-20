@@ -96,7 +96,6 @@ const MarketsPage: NextPageWithLayout = () => {
           if (discoveredMarketIds.length > 0) {
             const marketsToSave = discoveredMarketIds.map(marketId => ({
               marketId,
-              creator: null, // Not available from transaction discovery
               metadataHash: null, // Not available from transaction discovery
             }));
             
@@ -115,7 +114,6 @@ const MarketsPage: NextPageWithLayout = () => {
       if (registryMarkets.length > 0) {
         const marketsToSave = registryMarkets.map(m => ({
           marketId: m.marketId,
-          creator: m.creator ?? null,
           metadataHash: m.metadataHash ?? null,
         }));
         

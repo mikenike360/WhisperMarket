@@ -4,10 +4,12 @@ import type { UserPosition } from '@/types';
 
 interface MarketPositionCardProps {
   position: UserPosition | null;
+  /** Global collateral balance (microcredits). Shown as available when present. */
+  globalBalance?: number;
   isOpen?: boolean;
 }
 
-export const MarketPositionCard: React.FC<MarketPositionCardProps> = ({ position, isOpen }) => {
+export const MarketPositionCard: React.FC<MarketPositionCardProps> = ({ position, globalBalance, isOpen }) => {
   if (!position) {
     return (
       <div className="card bg-base-100 shadow-xl rounded-xl">
@@ -21,8 +23,9 @@ export const MarketPositionCard: React.FC<MarketPositionCardProps> = ({ position
     );
   }
 
-  const totalCollateral = position.collateralAvailable + position.collateralCommitted;
-  const hasUnspentCollateral = position.collateralAvailable > 0;
+  const available = globalBalance ?? position.collateralAvailable;
+  const totalCollateral = available + position.collateralCommitted;
+  const hasUnspentCollateral = available > 0;
 
   return (
     <div className="card bg-base-100 shadow-xl rounded-xl">
@@ -43,7 +46,7 @@ export const MarketPositionCard: React.FC<MarketPositionCardProps> = ({ position
           <div className="flex flex-col rounded-lg bg-base-200/60 p-3">
             <span className="text-xs text-base-content uppercase tracking-wide">Available</span>
             <span className="font-semibold text-primary">
-              {toCredits(position.collateralAvailable).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
+              {toCredits(available).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </span>
             <span className="text-xs text-base-content">credits (for buying)</span>
           </div>

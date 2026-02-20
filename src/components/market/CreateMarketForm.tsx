@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
-import { initMarket, getTotalMarketsCount, getMarketIdAtIndex, fetchMarketCreator, clearMarketRegistryCache, clearMarketStateCache } from '@/lib/aleo/rpc';
+import { initMarket, getTotalMarketsCount, getMarketIdAtIndex, clearMarketRegistryCache, clearMarketStateCache } from '@/lib/aleo/rpc';
 import { isIntentOnlyWallet } from '@/lib/aleo/wallet/adapter';
 import { filterUnspentRecords } from '@/lib/aleo/wallet/records';
 import { getFeeForFunction } from '@/utils/feeCalculator';
@@ -48,7 +48,7 @@ function generateMetadataHash(title: string, description: string): string {
 }
 
 /**
- * Generate a random salt for market_id = hash(creator || metadata_hash || salt).
+ * Generate a random salt for market_id domain-separated hash(metadata_hash, salt, creator).
  * Uses crypto.getRandomValues; rpc.ts formats as field.
  */
 function generateSalt(): string {
@@ -135,7 +135,7 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
       const bond = parseFloat(bondAmount);
       const fee = parseFloat(feeBps);
 
-      // Generate metadata hash and salt for market_id = hash(creator || metadata_hash || salt)
+      // Generate metadata hash and salt for market_id domain-separated hash
       const metadataHash = generateMetadataHash(title, description);
       const salt = generateSalt();
       
@@ -169,6 +169,7 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
         userPublicKey,
         liquidityMicrocredits,
         bondMicrocredits,
+        0,
         fee,
         metadataHash,
         salt,
@@ -188,7 +189,6 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
           title: title || `Market ${transactionId.slice(0, 8)}...`,
           description: description || 'Prediction market',
           category: 'General',
-          creator_address: String(userPublicKey),
           metadata_hash: metadataHash,
         });
       }
@@ -213,18 +213,9 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
                 if (marketId) {
                   clearMarketRegistryCache();
                   clearMarketStateCache();
-                  
-                  let creator: string | null = null;
-                  try {
-                    creator = await fetchMarketCreator(marketId);
-                  } catch {
-                    // Ignore; we'll use userPublicKey
-                  }
-                  
-                  // Finalize pending metadata now that we have the market_id
+
                   await finalizePendingMarketMetadata(transactionId, marketId);
-                  
-                  // Also ensure it's in the main table (in case finalize failed)
+
                   const existing = await getMarketMetadata(marketId);
                   if (!existing) {
                     await createMarketMetadata({
@@ -232,12 +223,11 @@ export const CreateMarketForm: React.FC<CreateMarketFormProps> = ({
                       title: title || `Market ${marketId.slice(0, 8)}...`,
                       description: description || 'Prediction market',
                       category: 'General',
-                      creator_address: creator ?? String(userPublicKey),
                       transaction_id: transactionId,
                       metadata_hash: metadataHash,
                     });
                   }
-                  
+
                   return;
                 }
               }

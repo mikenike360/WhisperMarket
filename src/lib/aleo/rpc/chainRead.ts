@@ -6,6 +6,7 @@
 import { client, getClient } from './client';
 import { PREDICTION_MARKET_PROGRAM_ID, CURRENT_RPC_URL } from '@/types';
 import { getMappingValueFromProvable } from './provableClient';
+import { addressToFieldKey } from '../addressToFieldKey';
 
 export async function getMarketInitTransactions(
   page = 0,
@@ -221,19 +222,53 @@ export async function getMarketIdAtIndex(index: number): Promise<string | null> 
 }
 
 /**
- * Get creator address for a market from market_creator mapping
+ * Creator address is no longer stored on-chain (privacy).
+ * Kept for API compatibility; always returns null.
  */
-export async function fetchMarketCreator(marketId: string): Promise<string | null> {
+export async function fetchMarketCreator(_marketId: string): Promise<string | null> {
+  return null;
+}
+
+/** Parse u128 mapping value string to number (e.g. "123u128" or "123" -> 123). */
+function parseMappingU128(value: string | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  const cleaned = String(value).replace(/u128$/i, '').replace(/^["']|["']$/g, '').trim();
+  const num = parseInt(cleaned, 10);
+  return isNaN(num) ? 0 : num;
+}
+
+/**
+ * Get global collateral balance for an address (user_collateral mapping).
+ * Key is the field representation of the address (not bech32+"field"). Uses addressToFieldKey.
+ * Tries Provable API first; on 404/null falls back to Aleo RPC getMappingValue.
+ */
+export async function fetchUserCollateral(address: string): Promise<number> {
+  let key: string;
+  try {
+    key = addressToFieldKey(address);
+  } catch {
+    return 0;
+  }
   try {
     const value = await getMappingValueFromProvable(
       PREDICTION_MARKET_PROGRAM_ID,
-      'market_creator',
-      `${marketId}field`
+      'user_collateral',
+      key
     );
-    
-    if (value === null) return null;
-    return value;
+    if (value !== null && value !== undefined) {
+      return parseMappingU128(value);
+    }
   } catch {
-    return null;
+    // Provable failed (e.g. 404); try RPC fallback
+  }
+  try {
+    const rpcValue = await client.request('getMappingValue', {
+      program_id: PREDICTION_MARKET_PROGRAM_ID,
+      mapping_name: 'user_collateral',
+      key,
+    });
+    return parseMappingU128(rpcValue as string);
+  } catch {
+    return 0;
   }
 }

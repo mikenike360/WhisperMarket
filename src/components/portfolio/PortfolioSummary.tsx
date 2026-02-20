@@ -7,13 +7,15 @@ interface PortfolioSummaryProps {
     position: UserPosition;
     marketState: MarketState | null;
   }>;
+  /** Global collateral balance (microcredits). Used as available when present. */
+  globalBalance?: number;
 }
 
-export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({ positions }) => {
+export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({ positions, globalBalance }) => {
   const totalMarkets = positions.length;
   const totalYesShares = positions.reduce((sum, p) => sum + p.position.yesShares, 0);
   const totalNoShares = positions.reduce((sum, p) => sum + p.position.noShares, 0);
-  const totalAvailableCollateral = positions.reduce(
+  const totalAvailableCollateral = globalBalance ?? positions.reduce(
     (sum, p) => sum + p.position.collateralAvailable,
     0
   );

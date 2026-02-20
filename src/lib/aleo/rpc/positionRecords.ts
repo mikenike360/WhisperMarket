@@ -261,7 +261,7 @@ export async function getAllUserPositions(
     }
 
     let allRecords: any[] = [];
-    const usePositionHelper = programId === PREDICTION_MARKET_PROGRAM_ID || programId === 'whisper_market';
+    const usePositionHelper = programId === PREDICTION_MARKET_PROGRAM_ID || programId === 'whisper_market_v2' || programId === 'whisper_market';
     try {
       allRecords = usePositionHelper
         ? ((await requestPositionRecords(requestRecordsFn, true)) as any[])

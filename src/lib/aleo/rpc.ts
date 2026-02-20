@@ -12,6 +12,7 @@ export {
   getTotalMarketsCount,
   getMarketIdAtIndex,
   fetchMarketCreator,
+  fetchUserCollateral,
 } from './rpc/chainRead';
 export {
   getAllMarketsFromChain,
@@ -34,11 +35,16 @@ export { transferPublic, transferPrivate, joinRecords, combineMultipleRecords } 
 export {
   initMarket,
   openPositionPrivate,
-  depositPrivate,
+  depositGlobalPrivate,
+  withdrawGlobalPrivate,
+  mintYesOnlyPrivate,
+  mintNoOnlyPrivate,
+  mintPairsForBuyPrivate,
   swapCollateralForYesPrivate,
   swapCollateralForNoPrivate,
+  swapYesForCollateralPrivate,
+  swapNoForCollateralPrivate,
   mergeTokensPrivate,
-  withdrawPrivate,
   redeemPrivate,
   resolveMarket,
   pause,
