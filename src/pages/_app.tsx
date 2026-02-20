@@ -95,7 +95,7 @@ function CustomApp({ Component, pageProps }: AppPropsWithLayout) {
             wallets={wallets}
             decryptPermission={DecryptPermission.AutoDecrypt}
             network={Network.TESTNET}
-            autoConnect={false}
+            autoConnect={true}
           >
             <WalletModalProvider>
               <ThemeProvider attribute="data-theme" enableSystem={false} defaultTheme="black">

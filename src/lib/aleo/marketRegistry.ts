@@ -67,17 +67,13 @@ export async function getAllMarketsFromChain(
 
     const startIndex = offset;
     const endIndex = limit ? Math.min(offset + limit, totalCount) : totalCount;
-    const marketIds: string[] = [];
-    
+    // Fetch all market IDs in parallel instead of sequentially
+    const indexPromises: Promise<string | null>[] = [];
     for (let i = startIndex; i < endIndex; i++) {
-      try {
-        const marketId = await getMarketIdAtIndex(i);
-        if (marketId && marketId.length > 0) marketIds.push(marketId);
-      } catch {
-        continue;
-      }
+      indexPromises.push(getMarketIdAtIndex(i));
     }
-
+    const results = await Promise.all(indexPromises);
+    const marketIds = results.filter((id): id is string => id != null && id.length > 0);
     return marketIds;
   } catch {
     return [];

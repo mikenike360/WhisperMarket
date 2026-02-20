@@ -123,8 +123,6 @@ const MarketsPage: NextPageWithLayout = () => {
       // Create market list with registry data
       const marketList: MarketCardData[] = Array.from(allMarketIds).map((marketId) => {
         const meta = metadataMap[marketId] ?? defaultMetadata(marketId);
-        // Find registry entry for this market to get status
-        const registryEntry = registryMarkets.find(m => m.marketId === marketId);
         return {
           marketId,
           ...meta,
@@ -134,8 +132,22 @@ const MarketsPage: NextPageWithLayout = () => {
         };
       });
 
-      // Fetch full state for all markets (includes reserves, prices, etc.)
-      const marketPromises = marketList.map(async (market) => {
+      // Filter to active (open) markets using registry status, or include if status unknown so we load state
+      const openFromRegistry = new Set(
+        registryMarkets.filter(r => r.status === 0).map(r => r.marketId)
+      );
+      const unknownStatus = new Set(
+        registryMarkets.filter(r => r.status === null || r.status === undefined).map(r => r.marketId)
+      );
+      const initialList = marketList.filter(m =>
+        openFromRegistry.has(m.marketId) || unknownStatus.has(m.marketId)
+      );
+      setMarkets(initialList);
+      setLoading(false);
+      setDiscovering(false);
+
+      // Fetch full state for all markets in parallel (reserves, prices, etc.)
+      const marketPromises = initialList.map(async (market) => {
         try {
           const state = await getMarketState(market.marketId);
           return {
@@ -155,22 +167,7 @@ const MarketsPage: NextPageWithLayout = () => {
       });
 
       const results = await Promise.all(marketPromises);
-      
-      // Filter to show only active markets (status === 0) in the UI
-      const activeMarkets = results.filter(m => {
-        // If state exists, check status; otherwise include if no error
-        if (m.state) {
-          return m.state.status === 0; // STATUS_OPEN
-        }
-        const registryEntry = registryMarkets.find(r => r.marketId === m.marketId);
-        if (registryEntry && registryEntry.status === 0) {
-          return true;
-        }
-        // Include markets with errors if they might be active (don't filter out completely)
-        return m.error === null;
-      });
-      
-      setMarkets(activeMarkets);
+      setMarkets(results);
     } catch {
       setMarkets([]);
     } finally {
