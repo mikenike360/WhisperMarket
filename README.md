@@ -1,189 +1,97 @@
 # Whisper Market
 
-**Built for [AKINDO Wave Hacks](https://app.akindo.io/wave-hacks/gXdXJvJXxTJKBELvo?tab=overview)** — a private prediction market on the Aleo blockchain. Create markets, take YES/NO positions, and redeem winnings with end-to-end privacy (private fees and private transfers).
+**Submission for [AKINDO Wave Hacks](https://app.akindo.io/wave-hacks/gXdXJvJXxTJKBELvo?tab=overview)** — a private prediction market on the Aleo blockchain.
 
-## Features
+---
 
-- Create prediction markets with custom questions and parameters
-- Buy YES or NO positions using automated market maker (AMM) pricing
-- Deposit and withdraw collateral; view position and share balances per market
-- View market statistics including current prices, pool size, and fees
-- Redeem positions after market resolution
-- Portfolio view to track your positions across all markets
-- Admin page for authorized resolvers to resolve and pause markets
-- In-app transaction tracker for pending and recent transactions
-- Automatic market discovery from on-chain data
+## 1. Project Overview
 
-## Tech Stack
+### Name & description
 
-- Frontend: Next.js 15, React 19, TypeScript, Tailwind CSS, DaisyUI
-- Blockchain: Aleo (Leo program: `whisper_market_v2.aleo`)
-- Wallet: Aleo Wallet Adapter (supports Leo, Puzzle, Fox, Soter, Shield wallets)
-- State management: React Query
-- Optional: Supabase for market metadata (questions, descriptions)
+**Whisper Market** is a privacy-preserving prediction market where users create markets, take YES/NO positions, and redeem winnings. All collateral, share balances, and fee payments are private; only market existence and resolution outcome are public.
 
-## Prerequisites
+### Problem being solved
 
-- Node.js 18+ and Yarn
-- Aleo CLI (Leo) installed and configured
-- An Aleo wallet (Leo Wallet or compatible)
+Prediction markets need liquidity and participation, but public ledgers expose who bet what and when. That creates targeting, front-running, and reluctance to participate. Whisper Market uses Aleo’s private execution so that positions, sizes, and activity stay confidential while the market’s outcome and liquidity are verifiable on-chain.
 
-## Installation
+### Why privacy matters for this use case
 
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   yarn install
-   ```
+- **Position privacy** — No one can see how much you’ve staked or on which side, reducing targeting and copy-trading.
+- **Fee privacy** — Transaction fees are paid from private credits so fee patterns don’t reveal activity.
+- **Redeem privacy** — Claiming winnings doesn’t expose past positions or PnL on a public ledger.
 
-3. Configure environment variables:
-   - Create a `.env` file in the project root (or copy from `.env.example` if present)
-   - Set at least: `PROGRAM_NAME` (e.g. `whisper_market_v2.aleo`), `RPC_URL`, and `ADDRESS` for the Leo program
-   - Optionally set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` if using Supabase for market metadata
+Privacy encourages participation and larger size without sacrificing on-chain settlement and resolution.
 
-4. Build the Leo program:
-   ```bash
-   yarn program
-   ```
 
-## Development
+---
 
-Start the development server:
-```bash
-yarn dev
-```
+## 2. Working Demo
 
-The application will be available at `http://localhost:3000`
+- **Live app:** **[https://whispermarket.xyz/](https://whispermarket.xyz/)** (deployed on Vercel)
+- **Network:** Aleo Testnet; connect with Shield wallet or any compatible Aleo wallet.
+- **Leo program:** `whisper_market_v2.aleo` — deployed and callable from the app (init, deposit, swap, redeem, resolve, pause/unpause).
+- **UI:** Next.js app with Markets list, per-market page (prices, buy/sell, position), Portfolio (positions + manage Cash), Create Market, and Admin (resolve/pause) for authorized resolvers.
 
-## Available Scripts
+Try it at [whispermarket.xyz](https://whispermarket.xyz/) 
 
-- `yarn dev` - Start development server
-- `yarn build` - Build for production
-- `yarn start` - Start production server
-- `yarn program` - Build and copy Leo program
-- `yarn lint` - Run ESLint
-- `yarn ts` - Type check without emitting files
+---
 
-## Project Structure
+## 3. Technical Documentation
 
-```
-├── program/          # Leo smart contract (whisper_market_v2.aleo)
-│   └── src/
-│       └── main.leo
-├── src/
-│   ├── assets/       # Global styles
-│   ├── components/   # React components
-│   │   ├── admin/    # Admin/resolver UI
-│   │   ├── market/   # Market, buy form, stats, redeem
-│   │   ├── portfolio/# Portfolio summary and position cards
-│   │   ├── transactions/ # Transaction tracker
-│   │   └── ui/       # Buttons, footer, loader
-│   ├── config/       # Routes, admin addresses
-│   ├── contexts/     # Transaction context
-│   ├── lib/          # Core logic and integrations
-│   │   ├── aleo/     # RPC, wallet, records, market registry
-│   │   └── supabase.ts
-│   ├── pages/        # Next.js pages (index, markets, market, portfolio, admin)
-│   │   └── api/      # RPC and Provable API proxy endpoints
-│   ├── services/     # Market metadata (e.g. Supabase)
-│   ├── layouts/      # App and dashboard layouts
-│   ├── hooks/        # Custom React hooks
-│   ├── utils/        # Fee calculator, position helpers, credits
-│   └── types/        # TypeScript type definitions
-└── public/           # Static assets
-```
+### GitHub repository
 
-## Usage
+This README and the full source code are in the project repository. The app is deployed on Vercel; the repo is for code reference and for anyone who wants to run or fork it.
 
-1. Connect your Aleo wallet
-2. Browse available markets on the markets page
-3. Click a market to view details, deposit collateral, and buy YES or NO shares
-4. Create new markets via "Create Market" (bond + initial liquidity required)
-5. View your portfolio to see positions across markets
-6. After a market is resolved, redeem winning positions (market page or portfolio)
-7. Authorized resolvers can resolve and pause markets from the admin page
+### Architecture overview
 
-## Smart Contract
-
-The Leo program (`whisper_market_v2.aleo`) implements a prediction market with:
-- Market initialization (bond, liquidity, fee in basis points, metadata hash)
-- Private collateral deposits and position records
-- AMM-based pricing for YES/NO shares (swap_collateral_for_yes_private / swap_collateral_for_no_private)
-- Merge of YES/NO back to collateral; withdraw private
-- Market resolution (YES/NO) and private redemption of winnings
-- Fee collection; admin pause/unpause
-
-## Technical Documentation
-
-### High-level flow
-
-The following diagram shows how the user, frontend, wallet, Aleo program, blockchain, and Supabase fit together:
+- **Frontend (Next.js)** — Wallet connection (Aleo Wallet Adapter), reads market and mapping data via RPC/Provable API, builds and submits transactions (private fees, private transfers).
+- **Wallet** — Signing and record selection; fees are paid from private credits.
+- **Leo program** — On-chain logic: market init, global deposit/withdraw, open position, AMM buy/sell (YES/NO), merge, redeem, resolve, admin pause/unpause. All value movements use private Aleo transfers.
+- **Chain / RPC** — Public state (market IDs, status, resolution, pool/reserves) is readable; user positions and balances remain private.
 
 ```mermaid
-flowchart TB
-  subgraph user["User"]
-    Browser[Browser]
-  end
-
-  subgraph frontend["Frontend (Next.js)"]
-    App[App UI - Markets · Portfolio · Admin]
-  end
-
-  subgraph wallet["Aleo Wallet"]
-    Connect[Connect & sign]
-    Records[Request private records]
-  end
-
-  subgraph aleo["Aleo network"]
-    RPC[RPC / Provable API]
-    Chain[Blockchain]
-    Program[Leo program\nwhisper_market_v2.aleo]
-  end
-
-  subgraph data["Metadata (optional)"]
-    Supabase[Supabase]
-  end
-
-  Browser --> App
-  App <--> Connect
-  App <--> Records
-  App --> RPC
-  RPC --> Chain
-  Chain --> Program
-  App <--> Supabase
-  RPC -.-> App
+flowchart LR
+  User[User] --> App[Next.js App]
+  App <--> Wallet[Aleo Wallet]
+  App --> RPC[RPC / Provable]
+  RPC --> Chain[Aleo Chain]
+  Chain --> Program[Leo Program]
+  App -.-> Meta[Supabase metadata]
 ```
 
-- **User → Frontend:** Opens the app in the browser; sees markets, portfolio, create market, redeem, admin.
-- **Frontend ↔ Wallet:** User connects wallet; app requests private credit records and builds transactions; wallet signs and submits (with private fees).
-- **Frontend → RPC / Blockchain:** App reads public state (market IDs, resolution, pool stats) via RPC and Provable API; transactions are submitted through the wallet and executed on-chain.
-- **Blockchain → Leo program:** Transactions run the program (init, deposit, swap, redeem, resolve, etc.); private inputs/outputs stay encrypted.
-- **Frontend ↔ Supabase:** Optional: app reads or writes market metadata (question text, descriptions) from Supabase; on-chain state remains the source of truth for existence and resolution.
+### Privacy model
 
-### GitHub Repository
+- **Private fees** — Transactions pay fees from **private** credits; fee payments are not visible on the public ledger.
+- **Private transfers** — Collateral, shares, and payouts are private records (encrypted inputs/outputs); only the holder and the program see amounts and ownership.
+- **Public state** — Only what’s needed for the market to function is public: market existence, status (open/resolved/paused), resolution outcome, and aggregate pool/reserves for pricing. No per-user balances or history are exposed.
 
-The full source code and this README are available in the project repository. Clone or fork the repo to run the app locally, build the Leo program, and contribute.
+---
 
-### Architecture Overview
+## 4. Progress Changelog (Wave 2+)
 
-- **Frontend (Next.js)** — Connects to the user’s Aleo wallet, fetches market data from chain/indexer, and builds transaction payloads for the Leo program.
-- **Wallet adapter** — Handles record selection, signing, and submission of transactions with **private fees** (fees paid from private credits, not public balance).
-- **Leo program** — On-chain logic for markets: init, deposit, AMM swaps (YES/NO), redeem, resolve, and admin (pause/unpause). All Aleo credit movements use **private transfers** (inputs and outputs are encrypted records).
-- **Chain / RPC** — Execution and persistence of transactions; public state (e.g. market IDs, resolution) is readable; user positions and balances stay private.
+### What we built since last submission
 
-### Privacy Model
+- **UX:** Global “Cash” (collateral) moved to Portfolio; swap-style deposit/withdraw on Portfolio; header shows Cash balance; “Open position” block on market page when user has no position; Buy/Sell tabs; terminology aligned to “Cash” and “Available Cash” / “Total Shares.”
+- **Markets list:** Faster load via parallel market ID and state fetches; list appears first with loading placeholders, then state fills in; simpler preview cards (price bar + pool/fee in one line).
+- **Admin:** Resolve-market transaction uses a **public** fee so execution errors are visible; admin restricted to a single allowed wallet address.
+- **Correctness:** Portfolio and market cards show “Total Shares” as YES + NO; “Committed” as YES + NO shares; “Total Cash” / “Available Cash” clarified so numbers add up.
 
-When users **create markets**, **deposit** collateral, **buy or sell** shares, and **redeem** winnings, their activity is encrypted end-to-end:
+### Feedback incorporated
 
-1. **Private fees** — Every transaction (init, deposit, swap, redeem, resolve, etc.) is configured to pay fees from **private** Aleo credits. Fee payments are not visible on the public ledger.
-2. **Private transfers** — The program uses private Aleo token transfers only. Collateral, shares, and payouts are represented as private records (inputs and outputs of the program); only the user and the program logic see amounts and ownership.
+- Simplified market list cards and reduced clutter on the main markets page.
+- Clear separation of Cash (Portfolio) vs per-market position so deposit/withdraw lives in one place.
 
-As a result, market creation, deposits, share trades, and redemptions are all privacy-preserving: balances, positions, and fee payments stay encrypted, while only the necessary public state (e.g. market existence, resolution outcome) is exposed.
+### Next wave goals
+
+- **USDCx integration** — Support USDCx (or compatible stablecoin) so users can trade and settle in a familiar unit while keeping positions and activity private on Aleo.
+- **UX improvements** — Refine flows (onboarding, deposit/withdraw, buy/sell), feedback and loading states, and mobile experience so the app feels fast and clear for both new and returning users.
+
+---
 
 ## Submission
 
-- **Event:** [AKINDO Wave Hacks](https://app.akindo.io/wave-hacks)
-- **Project:** [Whisper Market — Overview](https://app.akindo.io/wave-hacks/gXdXJvJXxTJKBELvo?tab=overview)
+- **Buildathon:** [AKINDO Wave Hacks](https://app.akindo.io/wave-hacks/gXdXJvJXxTJKBELvo?tab=overview)
+- **Live demo:** [https://whispermarket.xyz/](https://whispermarket.xyz/)
 
 ## License
 
