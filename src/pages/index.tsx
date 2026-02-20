@@ -300,6 +300,7 @@ const MainPage: NextPageWithLayout = () => {
               className="link link-hover text-base font-extrabold inline-flex items-center gap-2"
               style={{
                 color: '#ffffff',
+                opacity: 1,
                 textShadow: '0 2px 4px rgba(0,0,0,0.8)',
               }}
             >
