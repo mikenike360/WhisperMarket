@@ -17,7 +17,7 @@ Prediction markets need liquidity and participation, but public ledgers expose w
 ### Why privacy matters for this use case
 
 - **Position privacy** — No one can see how much you’ve staked or on which side, reducing targeting and copy-trading.
-- **Fee privacy** — Transaction fees are paid from private credits so fee patterns don’t reveal activity.
+- **Fee privacy** — Transaction fees are paid from private credits so fee patterns don’t reveal activity. (Some transactions are currently using public fees for testing. This will be changed before being deployed to the mainnet)
 - **Redeem privacy** — Claiming winnings doesn’t expose past positions or PnL on a public ledger.
 
 Privacy encourages participation and larger size without sacrificing on-chain settlement and resolution.
