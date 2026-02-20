@@ -11,7 +11,7 @@ program whisper_market_v2.aleo {
     //   - market_collateral_pool(m) == market_total_yes_supply(m) == market_total_no_supply(m).
     //   - Minting collateral increases pool and both supplies by NET collateral (after mint fee).
     //   - Merging burns equal YES+NO and returns collateral 1:1 (decrements pool and both supplies).
-    // - After RESOLVED (Option A settlement at resolve):
+    // - After RESOLVED (Settlement at resolve):
     //   - At resolve: reserves are zeroed and total supplies reduced by reserve amounts; pool unchanged.
     //   - remaining_winning_supply is user-only (pool no longer backs pool-owned shares).
     //   - Solvency: market_collateral_pool(m) >= remaining_winning_supply(m). Excess = pool - remaining_winning_supply = former winning reserve; creator may withdraw via withdraw_excess_private.
