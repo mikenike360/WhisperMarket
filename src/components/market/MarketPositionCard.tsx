@@ -24,17 +24,10 @@ export const MarketPositionCard: React.FC<MarketPositionCardProps> = ({ position
   }
 
   const available = globalBalance ?? position.collateralAvailable;
-  const hasUnspentCollateral = available > 0;
-
   return (
     <div className="card bg-base-100 shadow-xl rounded-xl">
       <div className="card-body">
         <h3 className="card-title text-base mb-3">Your position</h3>
-        {isOpen && hasUnspentCollateral && (
-          <div className="alert alert-warning py-2 mb-3 text-sm">
-            <span>Use or withdraw Cash before the market resolves. Unspent Cash cannot be withdrawn after resolution.</span>
-          </div>
-        )}
         <div className="rounded-lg bg-primary/10 p-3 mb-3">
           <span className="text-xs text-base-content uppercase tracking-wide">Available Cash</span>
           <div className="font-semibold text-primary text-lg">

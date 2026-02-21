@@ -155,7 +155,7 @@ export const SellForm: React.FC<SellFormProps> = ({
       <div className="card-body">
         <h3 className="card-title text-base mb-2">Sell shares</h3>
         <p className="text-sm text-base-content mb-4">
-          Sell YES for NO tokens or NO for YES tokens. Use Merge to convert YES+NO back to collateral.
+          Sell YES for NO tokens or NO for YES tokens.
         </p>
 
         {error && (
