@@ -1,0 +1,96 @@
+/**
+ * Cache market chain state (reserves, status, outcome) in Supabase.
+ * Reduces Provable RPC calls on markets page load.
+ */
+import { getSupabase } from '@/lib/supabase';
+import type { MarketState } from '@/types';
+
+const TABLE = 'market_state_cache';
+const CACHE_TTL_SEC = 60; // Treat cache as fresh for 60 seconds
+
+function rowToState(row: MarketStateCacheRow): MarketState {
+  return {
+    status: Number(row.status),
+    outcome: row.outcome === null ? null : row.outcome === true,
+    priceYes: Number(row.price_yes),
+    collateralPool: Number(row.collateral_pool),
+    yesReserve: Number(row.yes_reserve),
+    noReserve: Number(row.no_reserve),
+    feeBps: Number(row.fee_bps),
+    isPaused: Boolean(row.is_paused),
+  };
+}
+
+interface MarketStateCacheRow {
+  market_id: string;
+  status: number;
+  outcome: boolean | null;
+  price_yes: number;
+  collateral_pool: number;
+  yes_reserve: number;
+  no_reserve: number;
+  fee_bps: number;
+  is_paused: boolean;
+  updated_at: string;
+}
+
+/**
+ * Get cached market states for the given market IDs.
+ * Only returns entries that are within CACHE_TTL_SEC.
+ */
+export async function getCachedMarketStates(
+  marketIds: string[]
+): Promise<Record<string, MarketState>> {
+  const client = getSupabase();
+  if (!client || marketIds.length === 0) return {};
+
+  try {
+    const cutoff = new Date(Date.now() - CACHE_TTL_SEC * 1000).toISOString();
+    const { data, error } = await client
+      .from(TABLE)
+      .select('*')
+      .in('market_id', marketIds)
+      .gte('updated_at', cutoff);
+
+    if (error || !data || !Array.isArray(data)) return {};
+
+    const out: Record<string, MarketState> = {};
+    for (const row of data as MarketStateCacheRow[]) {
+      out[row.market_id] = rowToState(row);
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Upsert cached state for one or more markets.
+ */
+export async function setCachedMarketStates(
+  entries: Array<{ marketId: string; state: MarketState }>
+): Promise<void> {
+  const client = getSupabase();
+  if (!client || entries.length === 0) return;
+
+  try {
+    const rows = entries.map(({ marketId, state }) => ({
+      market_id: marketId,
+      status: state.status,
+      outcome: state.outcome,
+      price_yes: state.priceYes,
+      collateral_pool: state.collateralPool,
+      yes_reserve: state.yesReserve,
+      no_reserve: state.noReserve,
+      fee_bps: state.feeBps,
+      is_paused: state.isPaused,
+      updated_at: new Date().toISOString(),
+    }));
+
+    await client.from(TABLE).upsert(rows, {
+      onConflict: 'market_id',
+    });
+  } catch {
+    // Non-blocking; ignore
+  }
+}

@@ -5,6 +5,15 @@ const withPWA = require('next-pwa')({
   dest: 'public',
   disable: process.env.NODE_ENV === 'development',
   runtimeCaching: require('next-pwa/cache'),
+  // Exclude dynamic-css-manifest.json from precache; it can 404 on Vercel and breaks SW install
+  manifestTransforms: [
+    (manifestEntries) => {
+      const filtered = manifestEntries.filter(
+        (e) => !e.url || !e.url.includes('dynamic-css-manifest.json')
+      );
+      return { manifest: filtered, warnings: [] };
+    },
+  ],
 });
 require('dotenv').config();
 
