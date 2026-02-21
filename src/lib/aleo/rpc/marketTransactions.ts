@@ -445,7 +445,7 @@ export async function withdrawGlobalPrivate(
 
   const fee = getFeeForFunction('withdraw_global_private');
   const inputs = [`${amountU64}u64`];
-  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_global_private', inputs, fee, true, [], { forShield: false });
+  const opts = createTransactionOptions(PREDICTION_MARKET_PROGRAM_ID, 'withdraw_global_private', inputs, fee, false, [], { forShield: false });
   const result = (await executeTransactionWithLog(walletAdapter, opts)) as { transactionId?: string; txId?: string; id?: string; transaction_id?: string; data?: { transactionId?: string }; result?: { transactionId?: string } };
   const txId = extractTransactionId(result);
   if (!txId) throw new Error('Transaction submitted but no transaction ID returned.');
