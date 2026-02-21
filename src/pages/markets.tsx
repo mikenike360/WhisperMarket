@@ -11,7 +11,7 @@ import { toCredits } from '@/utils/credits';
 import { formatPriceCents } from '@/utils/priceDisplay';
 import { CreateMarketForm } from '@/components/market/CreateMarketForm';
 import { getMarketsMetadata, saveMissingMarketMetadata } from '@/services/marketMetadata';
-import { getCachedMarketStates, setCachedMarketStates } from '@/services/marketStateCache';
+import { getCachedMarketStates, setCachedMarketStates, backfillMarketStateCache } from '@/services/marketStateCache';
 import { useTransaction } from '@/contexts/TransactionContext';
 import { SkeletonCard } from '@/components/ui/SkeletonCard';
 import { AnimatedPrice } from '@/components/ui/AnimatedPrice';
@@ -99,7 +99,9 @@ const MarketsPage: NextPageWithLayout = () => {
               metadataHash: null, // Not available from transaction discovery
             }));
             
-            saveMissingMarketMetadata(marketsToSave).catch(() => {});
+            saveMissingMarketMetadata(marketsToSave)
+              .then(() => backfillMarketStateCache(discoveredMarketIds))
+              .catch(() => {});
           }
         } catch {
           // Transaction discovery failed; enumeration results used
@@ -117,8 +119,10 @@ const MarketsPage: NextPageWithLayout = () => {
           metadataHash: m.metadataHash ?? null,
         }));
         
-        // Save missing markets in background (non-blocking)
-        saveMissingMarketMetadata(marketsToSave).catch(() => {});
+        // Save missing markets in background (non-blocking), then backfill cache table
+        saveMissingMarketMetadata(marketsToSave)
+          .then(() => backfillMarketStateCache(marketsToSave.map((m) => m.marketId)))
+          .catch(() => {});
       }
 
       // Create market list with registry data

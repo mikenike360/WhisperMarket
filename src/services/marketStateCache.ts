@@ -4,6 +4,7 @@
  */
 import { getSupabase } from '@/lib/supabase';
 import type { MarketState } from '@/types';
+import { getMarketState } from '@/lib/aleo/rpc';
 
 const TABLE = 'market_state_cache';
 const CACHE_TTL_SEC = 60; // Treat cache as fresh for 60 seconds
@@ -92,5 +93,33 @@ export async function setCachedMarketStates(
     });
   } catch {
     // Non-blocking; ignore
+  }
+}
+
+/**
+ * Fetch on-chain state for the given market IDs and write to market_state_cache.
+ * Used when backfilling markets table so the cache table stays in sync.
+ * Non-throwing; returns the number of markets successfully cached.
+ */
+export async function backfillMarketStateCache(marketIds: string[]): Promise<number> {
+  const client = getSupabase();
+  if (!client || marketIds.length === 0) return 0;
+
+  try {
+    const results = await Promise.allSettled(
+      marketIds.map((marketId) => getMarketState(marketId))
+    );
+    const entries: Array<{ marketId: string; state: MarketState }> = [];
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled' && result.value) {
+        entries.push({ marketId: marketIds[i], state: result.value });
+      }
+    });
+    if (entries.length > 0) {
+      await setCachedMarketStates(entries);
+    }
+    return entries.length;
+  } catch {
+    return 0;
   }
 }
