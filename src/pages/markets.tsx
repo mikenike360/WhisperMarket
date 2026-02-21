@@ -137,16 +137,11 @@ const MarketsPage: NextPageWithLayout = () => {
         };
       });
 
-      // Filter to active (open) markets using registry status, or include if status unknown so we load state
+      // Only show markets with active (open) status from registry
       const openFromRegistry = new Set(
         registryMarkets.filter(r => r.status === 0).map(r => r.marketId)
       );
-      const unknownStatus = new Set(
-        registryMarkets.filter(r => r.status === null || r.status === undefined).map(r => r.marketId)
-      );
-      const initialList = marketList.filter(m =>
-        openFromRegistry.has(m.marketId) || unknownStatus.has(m.marketId)
-      );
+      const initialList = marketList.filter(m => openFromRegistry.has(m.marketId));
 
       // Read cache first for fast first paint
       const cachedStates = await getCachedMarketStates(initialList.map((m) => m.marketId));
