@@ -11,6 +11,7 @@ import { toCredits } from '@/utils/credits';
 import { formatPriceCents } from '@/utils/priceDisplay';
 import { CreateMarketForm } from '@/components/market/CreateMarketForm';
 import { getMarketsMetadata, saveMissingMarketMetadata } from '@/services/marketMetadata';
+import { getCachedMarketStates, setCachedMarketStates } from '@/services/marketStateCache';
 import { useTransaction } from '@/contexts/TransactionContext';
 import { SkeletonCard } from '@/components/ui/SkeletonCard';
 import { AnimatedPrice } from '@/components/ui/AnimatedPrice';
@@ -142,12 +143,22 @@ const MarketsPage: NextPageWithLayout = () => {
       const initialList = marketList.filter(m =>
         openFromRegistry.has(m.marketId) || unknownStatus.has(m.marketId)
       );
-      setMarkets(initialList);
+
+      // Read cache first for fast first paint
+      const cachedStates = await getCachedMarketStates(initialList.map((m) => m.marketId));
+      const firstPaintList = initialList.map((market) => {
+        const state = cachedStates[market.marketId];
+        return state
+          ? { ...market, state, loading: false, error: null }
+          : { ...market, state: null, loading: true, error: null };
+      });
+      setMarkets(firstPaintList);
       setLoading(false);
       setDiscovering(false);
 
-      // Fetch full state for all markets in parallel (reserves, prices, etc.)
-      const marketPromises = initialList.map(async (market) => {
+      // Fetch full state only for cache misses
+      const toFetch = initialList.filter((m) => !cachedStates[m.marketId]);
+      const marketPromises = toFetch.map(async (market) => {
         try {
           const state = await getMarketState(market.marketId);
           return {
@@ -166,8 +177,23 @@ const MarketsPage: NextPageWithLayout = () => {
         }
       });
 
-      const results = await Promise.all(marketPromises);
-      setMarkets(results);
+      const fetchedResults = await Promise.all(marketPromises);
+      const fetchedByMarketId = new Map(fetchedResults.map((r) => [r.marketId, r]));
+      const mergedResults = initialList.map((market) => {
+        const cached = cachedStates[market.marketId];
+        if (cached) {
+          return { ...market, state: cached, loading: false, error: null };
+        }
+        const fetched = fetchedByMarketId.get(market.marketId);
+        return fetched ?? { ...market, state: null, loading: false, error: 'Failed to load' };
+      });
+      setMarkets(mergedResults);
+
+      // Write back fetched state to cache (fire-and-forget)
+      const toCache = fetchedResults
+        .filter((r) => r.state !== null)
+        .map((r) => ({ marketId: r.marketId, state: r.state! }));
+      if (toCache.length > 0) setCachedMarketStates(toCache).catch(() => {});
     } catch {
       setMarkets([]);
     } finally {
