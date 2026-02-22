@@ -11,7 +11,7 @@ import { toCredits } from '@/utils/credits';
 import { formatPriceCents } from '@/utils/priceDisplay';
 import { CreateMarketForm } from '@/components/market/CreateMarketForm';
 import { getMarketsMetadata, saveMissingMarketMetadata } from '@/services/marketMetadata';
-import { getCachedMarketStates, setCachedMarketStates, backfillMarketStateCache } from '@/services/marketStateCache';
+import { getOpenMarketIdsFromCache, getCachedMarketStates, setCachedMarketStates, backfillMarketStateCache } from '@/services/marketStateCache';
 import { useTransaction } from '@/contexts/TransactionContext';
 import { SkeletonCard } from '@/components/ui/SkeletonCard';
 import { AnimatedPrice } from '@/components/ui/AnimatedPrice';
@@ -75,57 +75,96 @@ const MarketsPage: NextPageWithLayout = () => {
     setDiscovering(true);
 
     try {
-      // Primary: Use on-chain enumeration via market registry
+      // Phase 1: Try Supabase first for fast first paint
+      const openIdsFromCache = await getOpenMarketIdsFromCache();
+      if (openIdsFromCache.length > 0) {
+        const [metadataMap, cachedStates] = await Promise.all([
+          getMarketsMetadata(openIdsFromCache),
+          getCachedMarketStates(openIdsFromCache, { allowStale: true }),
+        ]);
+        const firstPaintList: MarketCardData[] = openIdsFromCache.map((marketId) => {
+          const meta = metadataMap[marketId] ?? defaultMetadata(marketId);
+          const state = cachedStates[marketId];
+          return {
+            marketId,
+            ...meta,
+            state: state ?? null,
+            loading: !state,
+            error: null,
+          };
+        });
+        setMarkets(firstPaintList);
+        setLoading(false);
+        setDiscovering(false);
+
+        // Phase 2: Run chain + backfill in background, then refresh list from Supabase
+        runChainAndBackfill()
+          .then(async (openIds) => {
+            if (openIds && openIds.length > 0) {
+              const [meta, cache] = await Promise.all([
+                getMarketsMetadata(openIds),
+                getCachedMarketStates(openIds),
+              ]);
+              const mergedList: MarketCardData[] = openIds.map((marketId) => {
+                const m = meta[marketId] ?? defaultMetadata(marketId);
+                const state = cache[marketId];
+                return {
+                  marketId,
+                  ...m,
+                  state: state ?? null,
+                  loading: !state,
+                  error: null,
+                };
+              });
+              setMarkets(mergedList);
+            }
+          })
+          .catch(() => {});
+        return;
+      }
+
+      // Fallback: Supabase empty or no open markets — run chain-based flow (bootstrap)
       let allMarketIds = new Set<string>();
       let registryMarkets: MarketRegistryEntry[] = [];
-      
+
       try {
         const registryData = await getAllMarkets();
         registryMarkets = registryData;
-        registryData.forEach(m => allMarketIds.add(m.marketId));
-      } catch (enumError) {
+        registryData.forEach((m) => allMarketIds.add(m.marketId));
+      } catch {
+        // ignore
       }
-      
-      // Fallback: Discover markets from chain (for markets created before enumeration was added)
-      // Only use if enumeration returned no results
+
       if (allMarketIds.size === 0) {
         try {
           const discoveredMarketIds = await discoverMarketsFromChain();
-          discoveredMarketIds.forEach(id => allMarketIds.add(id));
-          // Save discovered markets to Supabase (with minimal data since we don't have registry info)
+          discoveredMarketIds.forEach((id) => allMarketIds.add(id));
           if (discoveredMarketIds.length > 0) {
-            const marketsToSave = discoveredMarketIds.map(marketId => ({
+            const marketsToSave = discoveredMarketIds.map((marketId) => ({
               marketId,
-              metadataHash: null, // Not available from transaction discovery
+              metadataHash: null,
             }));
-            
             saveMissingMarketMetadata(marketsToSave)
               .then(() => backfillMarketStateCache(discoveredMarketIds))
               .catch(() => {});
           }
         } catch {
-          // Transaction discovery failed; enumeration results used
+          // ignore
         }
       }
 
-      // Fetch metadata from Supabase (falls back to empty if not configured)
       const metadataMap = await getMarketsMetadata(Array.from(allMarketIds));
 
-      // Save any markets that don't have metadata in Supabase yet
-      // This ensures all discovered markets are persisted for easy retrieval
       if (registryMarkets.length > 0) {
-        const marketsToSave = registryMarkets.map(m => ({
+        const marketsToSave = registryMarkets.map((m) => ({
           marketId: m.marketId,
           metadataHash: m.metadataHash ?? null,
         }));
-        
-        // Save missing markets in background (non-blocking), then backfill cache table
         saveMissingMarketMetadata(marketsToSave)
           .then(() => backfillMarketStateCache(marketsToSave.map((m) => m.marketId)))
           .catch(() => {});
       }
 
-      // Create market list with registry data
       const marketList: MarketCardData[] = Array.from(allMarketIds).map((marketId) => {
         const meta = metadataMap[marketId] ?? defaultMetadata(marketId);
         return {
@@ -137,13 +176,11 @@ const MarketsPage: NextPageWithLayout = () => {
         };
       });
 
-      // Only show markets with active (open) status from registry
       const openFromRegistry = new Set(
-        registryMarkets.filter(r => r.status === 0).map(r => r.marketId)
+        registryMarkets.filter((r) => r.status === 0).map((r) => r.marketId)
       );
-      const initialList = marketList.filter(m => openFromRegistry.has(m.marketId));
+      const initialList = marketList.filter((m) => openFromRegistry.has(m.marketId));
 
-      // Read cache first for fast first paint
       const cachedStates = await getCachedMarketStates(initialList.map((m) => m.marketId));
       const firstPaintList = initialList.map((market) => {
         const state = cachedStates[market.marketId];
@@ -155,23 +192,17 @@ const MarketsPage: NextPageWithLayout = () => {
       setLoading(false);
       setDiscovering(false);
 
-      // Fetch full state only for cache misses
       const toFetch = initialList.filter((m) => !cachedStates[m.marketId]);
       const marketPromises = toFetch.map(async (market) => {
         try {
           const state = await getMarketState(market.marketId);
-          return {
-            ...market,
-            state,
-            loading: false,
-            error: null,
-          };
+          return { ...market, state, loading: false, error: null };
         } catch (err: any) {
           return {
             ...market,
             state: null,
             loading: false,
-            error: err.message || 'Failed to load',
+            error: err?.message || 'Failed to load',
           };
         }
       });
@@ -180,15 +211,12 @@ const MarketsPage: NextPageWithLayout = () => {
       const fetchedByMarketId = new Map(fetchedResults.map((r) => [r.marketId, r]));
       const mergedResults = initialList.map((market) => {
         const cached = cachedStates[market.marketId];
-        if (cached) {
-          return { ...market, state: cached, loading: false, error: null };
-        }
+        if (cached) return { ...market, state: cached, loading: false, error: null };
         const fetched = fetchedByMarketId.get(market.marketId);
         return fetched ?? { ...market, state: null, loading: false, error: 'Failed to load' };
       });
       setMarkets(mergedResults);
 
-      // Write back fetched state to cache (fire-and-forget)
       const toCache = fetchedResults
         .filter((r) => r.state !== null)
         .map((r) => ({ marketId: r.marketId, state: r.state! }));
@@ -200,6 +228,41 @@ const MarketsPage: NextPageWithLayout = () => {
       setDiscovering(false);
     }
   };
+
+  /** Chain discovery + backfill; returns open market IDs from registry for UI refresh. */
+  async function runChainAndBackfill(): Promise<string[] | null> {
+    try {
+      let registryMarkets: MarketRegistryEntry[] = [];
+      try {
+        registryMarkets = await getAllMarkets();
+      } catch {
+        return null;
+      }
+      if (registryMarkets.length === 0) {
+        try {
+          const discovered = await discoverMarketsFromChain();
+          if (discovered.length > 0) {
+            const toSave = discovered.map((marketId) => ({ marketId, metadataHash: null }));
+            await saveMissingMarketMetadata(toSave);
+            await backfillMarketStateCache(discovered);
+            return discovered;
+          }
+        } catch {
+          // ignore
+        }
+        return null;
+      }
+      const marketsToSave = registryMarkets.map((m) => ({
+        marketId: m.marketId,
+        metadataHash: m.metadataHash ?? null,
+      }));
+      await saveMissingMarketMetadata(marketsToSave);
+      await backfillMarketStateCache(registryMarkets.map((m) => m.marketId));
+      return registryMarkets.filter((r) => r.status === 0).map((r) => r.marketId);
+    } catch {
+      return null;
+    }
+  }
 
   useEffect(() => {
     loadMarkets();

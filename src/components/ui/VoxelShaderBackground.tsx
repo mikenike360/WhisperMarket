@@ -1,6 +1,18 @@
 'use client';
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
+
+function isWebGLSupported(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const canvas = document.createElement('canvas');
+    const gl =
+      canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    return Boolean(gl);
+  } catch {
+    return false;
+  }
+}
 
 const VOXEL_FRAGMENT_SHADER = `
 #ifdef GL_ES
@@ -158,11 +170,20 @@ void main() {
 }
 `;
 
+const FALLBACK_BG = 'rgb(15, 25, 35)'; // Dark blue-teal to match shader tones
+
 export default function VoxelShaderBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sandboxRef = useRef<InstanceType<(typeof import('glslCanvas'))['default']> | null>(null);
+  // Start false so server and client first paint both render canvas (avoids hydration mismatch)
+  const [useFallback, setUseFallback] = useState(false);
 
   useEffect(() => {
+    if (!isWebGLSupported()) {
+      setUseFallback(true);
+      return;
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -194,7 +215,8 @@ export default function VoxelShaderBackground() {
         setCanvasSize();
         window.addEventListener('resize', setCanvasSize);
       } catch (error) {
-        console.error('Failed to load voxel shader:', error);
+        console.warn('Voxel shader unavailable, using solid background:', error);
+        setUseFallback(true);
       }
     };
 
@@ -209,6 +231,16 @@ export default function VoxelShaderBackground() {
       }
     };
   }, []);
+
+  if (useFallback) {
+    return (
+      <div
+        className="fixed inset-0 w-full h-full pointer-events-none"
+        style={{ zIndex: 0, backgroundColor: FALLBACK_BG, opacity: 0.85 }}
+        aria-hidden
+      />
+    );
+  }
 
   return (
     <div

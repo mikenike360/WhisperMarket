@@ -36,22 +36,44 @@ interface MarketStateCacheRow {
 }
 
 /**
+ * Get market IDs that have status open (0) in the cache.
+ * No TTL filter so we can show whatever we have for fast first paint.
+ */
+export async function getOpenMarketIdsFromCache(): Promise<string[]> {
+  const client = getSupabase();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from(TABLE)
+      .select('market_id')
+      .eq('status', 0);
+
+    if (error || !data || !Array.isArray(data)) return [];
+    return (data as { market_id: string }[]).map((r) => r.market_id);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Get cached market states for the given market IDs.
- * Only returns entries that are within CACHE_TTL_SEC.
+ * Only returns entries that are within CACHE_TTL_SEC unless allowStale is true.
  */
 export async function getCachedMarketStates(
-  marketIds: string[]
+  marketIds: string[],
+  options?: { allowStale?: boolean }
 ): Promise<Record<string, MarketState>> {
   const client = getSupabase();
   if (!client || marketIds.length === 0) return {};
 
   try {
-    const cutoff = new Date(Date.now() - CACHE_TTL_SEC * 1000).toISOString();
-    const { data, error } = await client
-      .from(TABLE)
-      .select('*')
-      .in('market_id', marketIds)
-      .gte('updated_at', cutoff);
+    let query = client.from(TABLE).select('*').in('market_id', marketIds);
+    if (!options?.allowStale) {
+      const cutoff = new Date(Date.now() - CACHE_TTL_SEC * 1000).toISOString();
+      query = query.gte('updated_at', cutoff);
+    }
+    const { data, error } = await query;
 
     if (error || !data || !Array.isArray(data)) return {};
 
