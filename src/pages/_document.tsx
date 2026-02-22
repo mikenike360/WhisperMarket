@@ -40,12 +40,10 @@ class CustomDocument extends Document {
                     if (storedTheme) {
                       document.documentElement.setAttribute('data-theme', storedTheme);
                     } else {
-                      // Must match a theme in globals.css (black, luxury, forest, synthwave)
-                      document.documentElement.setAttribute('data-theme', 'black');
+                      document.documentElement.setAttribute('data-theme', 'light');
                     }
                   } catch (e) {
-                    // On error, fall back to "luxury":
-                    document.documentElement.setAttribute('data-theme', 'luxury');
+                    document.documentElement.setAttribute('data-theme', 'light');
                   }
                 })();
               `,

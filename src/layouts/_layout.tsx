@@ -16,13 +16,13 @@ import routes from '@/config/routes';
 require('@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css');
 
 const themes = [
+  'light',
+  'dark',
   'retro',
   'black',
   'luxury',
   'forest',
   'synthwave',
-  'light',
-  'dark',
   'cupcake',
   'dracula',
   'night',
