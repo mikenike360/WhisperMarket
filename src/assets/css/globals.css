@@ -215,6 +215,47 @@ Styles for Swiper slider
   @apply bg-base-100 text-base-content ;
 }
 
+/* Header Connect Wallet button: compact, professional, matches app */
+.wallet-button-wrap .wallet-adapter-button,
+.wallet-button-wrap .wallet-adapter-button-trigger {
+  min-height: 2rem !important;
+  height: 2rem !important;
+  padding: 0 0.75rem !important;
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+  border-radius: 0.5rem !important;
+  line-height: 1.25 !important;
+  gap: 0.375rem !important;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+.wallet-button-wrap .wallet-adapter-button-trigger {
+  background-color: hsl(var(--p)) !important;
+  color: hsl(var(--pc)) !important;
+  border: none !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+.wallet-button-wrap .wallet-adapter-button-trigger:hover {
+  background-color: hsl(var(--p) / 0.9) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08) !important;
+}
+@media (min-width: 640px) {
+  .wallet-button-wrap .wallet-adapter-button,
+  .wallet-button-wrap .wallet-adapter-button-trigger {
+    min-height: 2.25rem !important;
+    height: 2.25rem !important;
+    padding: 0 1rem !important;
+    font-size: 0.875rem !important;
+  }
+}
+.wallet-button-wrap .wallet-adapter-button-start-icon,
+.wallet-button-wrap .wallet-adapter-button-end-icon,
+.wallet-button-wrap .wallet-adapter-button-start-icon img,
+.wallet-button-wrap .wallet-adapter-button-end-icon img {
+  width: 1rem !important;
+  height: 1rem !important;
+}
+
 /* Force opaque white text on landing page (overrides DaisyUI / theme) */
 .landing-opaque-text {
   color: #ffffff !important;

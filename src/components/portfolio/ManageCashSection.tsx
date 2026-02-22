@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '@provablehq/aleo-wallet-adaptor-react';
 import { depositGlobalPrivate, withdrawGlobalPrivate } from '@/lib/aleo/rpc';
 import { filterUnspentRecords, pickRecordForAmount } from '@/lib/aleo/wallet/records';
@@ -25,8 +25,32 @@ export const ManageCashSection: React.FC<ManageCashSectionProps> = ({
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aleoWalletBalance, setAleoWalletBalance] = useState<number | null>(null);
 
   const displayCash = cashBalance ?? 0;
+
+  const fetchAleoWalletBalance = useCallback(async () => {
+    if (!requestRecords) {
+      setAleoWalletBalance(null);
+      return;
+    }
+    try {
+      const creditRecords = await requestRecords('credits.aleo', true);
+      const unspent = filterUnspentRecords(creditRecords ?? []);
+      const total = unspent.reduce((sum, r) => sum + r.value, 0);
+      setAleoWalletBalance(total);
+    } catch {
+      setAleoWalletBalance(null);
+    }
+  }, [requestRecords]);
+
+  useEffect(() => {
+    if (!userAddress) {
+      setAleoWalletBalance(null);
+      return;
+    }
+    fetchAleoWalletBalance();
+  }, [userAddress, fetchAleoWalletBalance]);
 
   const flipDirection = () => {
     setDirection((d) => (d === 'deposit' ? 'withdraw' : 'deposit'));
@@ -78,6 +102,7 @@ export const ManageCashSection: React.FC<ManageCashSectionProps> = ({
         );
         setAmount('');
         onBalanceRefreshed?.();
+        fetchAleoWalletBalance();
       } catch (err: any) {
         setError(err.message || 'Deposit failed');
       } finally {
@@ -94,6 +119,7 @@ export const ManageCashSection: React.FC<ManageCashSectionProps> = ({
         await withdrawGlobalPrivate(wallet, userAddress, microcredits, requestRecords ?? undefined);
         setAmount('');
         onBalanceRefreshed?.();
+        fetchAleoWalletBalance();
       } catch (err: any) {
         setError(err.message || 'Withdraw failed');
       } finally {
@@ -104,68 +130,112 @@ export const ManageCashSection: React.FC<ManageCashSectionProps> = ({
 
   if (!userAddress) return null;
 
+  const balanceStr = toCredits(displayCash).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+  const aleoBalanceStr =
+    aleoWalletBalance !== null
+      ? toCredits(aleoWalletBalance).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })
+      : null;
+
   return (
-    <div className="card bg-base-100 shadow-xl rounded-xl border border-base-200 mb-6">
-      <div className="card-body">
-        <h2 className="card-title text-lg mb-4">Manage Cash</h2>
-        <p className="text-sm text-base-content mb-4">
+    <div className="card bg-base-100 shadow-xl rounded-xl border border-base-200 overflow-hidden mb-6">
+      <div className="card-body p-5">
+        <h2 className="card-title text-lg gap-2 mb-1">
+          <span className="text-xl leading-none" aria-hidden>💵</span>
+          Manage Cash
+        </h2>
+        <p className="text-sm text-base-content/80 mb-4">
           Move credits between your Aleo wallet and your Cash balance to trade on any market.
         </p>
 
         {error && (
-          <div className="alert alert-error text-sm mb-4">
+          <div className="alert alert-error text-sm mb-4 rounded-lg flex items-center justify-between gap-2">
             <span>{error}</span>
-            <button type="button" className="btn btn-ghost btn-xs" onClick={() => setError(null)}>Dismiss</button>
+            <button type="button" className="btn btn-ghost btn-xs btn-circle shrink-0" onClick={() => setError(null)} aria-label="Dismiss">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         )}
 
         <div className="flex flex-col gap-0 max-w-md">
           {/* From */}
-          <div className="rounded-t-xl bg-base-200/60 border border-base-300 border-b-0 p-4">
-            <span className="text-xs uppercase tracking-wide text-base-content">From</span>
-            <div className="font-semibold text-base mt-1">
-              {direction === 'deposit' ? 'Aleo wallet' : <span className="text-primary">Cash</span>}
+          <div className="rounded-t-xl bg-base-200/70 border border-base-300 border-b-0 p-4">
+            <span className="text-xs font-medium uppercase tracking-wider text-base-content/70">From</span>
+            <div className="flex items-center gap-2 mt-2">
+              {direction === 'deposit' ? (
+                <span className="font-semibold text-base">Aleo wallet</span>
+              ) : (
+                <span className="font-semibold text-primary">Cash</span>
+              )}
             </div>
+            {direction === 'deposit' && aleoBalanceStr !== null && (
+              <p className="text-sm text-base-content mt-2">
+                <span className="font-medium">Balance:</span>{' '}
+                <span className="font-semibold text-lg tabular-nums">{aleoBalanceStr}</span>{' '}
+                <span className="text-base-content/80">credits</span>
+              </p>
+            )}
             {direction === 'withdraw' && (
-              <p className="text-xs text-base-content mt-1">Balance: <strong>{toCredits(displayCash).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}</strong> credits</p>
+              <p className="text-sm text-base-content mt-2">
+                <span className="font-medium">Balance:</span>{' '}
+                <span className="font-semibold text-lg tabular-nums text-primary">{balanceStr}</span>{' '}
+                <span className="text-base-content/80">credits</span>
+              </p>
             )}
           </div>
 
-          {/* Arrow: flip direction */}
+          {/* Double arrow: flip direction */}
           <div className="flex justify-center -my-[1px] relative z-10">
             <button
               type="button"
               onClick={flipDirection}
               disabled={loading}
-              className="btn btn-circle btn-sm bg-base-100 border-2 border-base-300 hover:border-primary hover:bg-primary/10 transition-colors"
+              className="btn btn-circle btn-sm bg-base-100 border-2 border-base-300 shadow-sm hover:border-primary hover:bg-primary/10 hover:shadow transition-all"
               title={direction === 'deposit' ? 'Switch to Withdraw' : 'Switch to Deposit'}
               aria-label={direction === 'deposit' ? 'Switch to Withdraw' : 'Switch to Deposit'}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ transform: direction === 'withdraw' ? 'rotate(180deg)' : undefined }}>
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 19V5m0 0l-4 4m4-4l4 4" />
+                <path d="M12 5v14m0 0l-4-4m4 4l4-4" />
               </svg>
             </button>
           </div>
 
           {/* To */}
-          <div className="rounded-b-xl bg-base-200/60 border border-base-300 border-t-0 p-4 pt-5">
-            <span className="text-xs uppercase tracking-wide text-base-content">To</span>
-            <div className="font-semibold text-base mt-1">
-              {direction === 'deposit' ? <span className="text-primary">Cash</span> : 'Aleo wallet'}
+          <div className="rounded-b-xl bg-base-200/70 border border-base-300 border-t-0 p-4 pt-5">
+            <span className="text-xs font-medium uppercase tracking-wider text-base-content/70">To</span>
+            <div className="flex items-center gap-2 mt-2">
+              {direction === 'deposit' ? (
+                <span className="font-semibold text-primary">Cash</span>
+              ) : (
+                <span className="font-semibold text-base">Aleo wallet</span>
+              )}
             </div>
             {direction === 'deposit' && (
-              <p className="text-xs text-base-content mt-1">Balance: <strong>{toCredits(displayCash).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}</strong> credits</p>
+              <p className="text-sm text-base-content mt-2">
+                <span className="font-medium">Balance:</span>{' '}
+                <span className="font-semibold text-lg tabular-nums text-primary">{balanceStr}</span>{' '}
+                <span className="text-base-content/80">credits</span>
+              </p>
+            )}
+            {direction === 'withdraw' && aleoBalanceStr !== null && (
+              <p className="text-sm text-base-content mt-2">
+                <span className="font-medium">Balance:</span>{' '}
+                <span className="font-semibold text-lg tabular-nums">{aleoBalanceStr}</span>{' '}
+                <span className="text-base-content/80">credits</span>
+              </p>
             )}
           </div>
 
-          <div className="mt-4">
-            <label className="label py-1">
-              <span className="label-text">Amount (credits)</span>
+          <div className="mt-5">
+            <label className="label py-0 px-0 mb-1.5">
+              <span className="label-text font-medium text-sm">Amount (credits)</span>
             </label>
             <input
               type="number"
               placeholder="e.g. 10"
-              className="input input-bordered w-full input-sm"
+              className="input input-bordered w-full input-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               min="0"
@@ -173,11 +243,17 @@ export const ManageCashSection: React.FC<ManageCashSectionProps> = ({
               disabled={loading}
             />
             <button
-              className="btn btn-primary w-full btn-sm mt-3"
+              className="btn btn-primary w-full btn-sm mt-3 rounded-lg font-medium"
               onClick={handleSubmit}
               disabled={loading || !amount || parseFloat(amount) <= 0}
             >
-              {loading ? <span className="loading loading-spinner loading-sm" /> : direction === 'deposit' ? 'Deposit to Cash' : 'Withdraw to wallet'}
+              {loading ? (
+                <span className="loading loading-spinner loading-sm" />
+              ) : direction === 'deposit' ? (
+                <>Deposit to Cash</>
+              ) : (
+                <>Withdraw to wallet</>
+              )}
             </button>
           </div>
         </div>

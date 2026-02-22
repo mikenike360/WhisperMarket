@@ -39,9 +39,13 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
   const { addTransaction } = useTransaction();
   const [redeemLoading, setRedeemLoading] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   const truncatedId = `${marketId.slice(0, 8)}...${marketId.slice(-8)}`;
   const totalShares = position.yesShares + position.noShares;
+  const yesStr = toCredits(position.yesShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+  const noStr = toCredits(position.noShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+  const totalStr = toCredits(totalShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 });
 
   const copyMarketId = () => {
     navigator.clipboard.writeText(marketId);
@@ -167,34 +171,41 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
         </div>
 
         {metadata?.description && (
-          <p className="text-sm text-base-content mb-4 line-clamp-2">
-            {metadata.description}
-          </p>
+          <div className="mb-4">
+            <p
+              className={`text-sm text-base-content ${descriptionExpanded ? '' : 'line-clamp-2'}`}
+              aria-expanded={descriptionExpanded}
+            >
+              {metadata.description}
+            </p>
+            {metadata.description.length > 100 && (
+              <button
+                type="button"
+                className="link link-hover link-primary text-xs mt-1"
+                onClick={() => setDescriptionExpanded((e) => !e)}
+                aria-expanded={descriptionExpanded}
+              >
+                {descriptionExpanded ? 'Show less' : 'Show more'}
+              </button>
+            )}
+          </div>
         )}
 
-        {/* Position Stats */}
-        <div className="stats stats-vertical shadow w-full mb-4">
-          <div className="stat py-2">
-            <div className="stat-title text-xs">YES Shares</div>
-            <div className="stat-value text-lg text-success">
-              {toCredits(position.yesShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
-            </div>
-            <div className="stat-desc text-xs">credits</div>
-          </div>
-          <div className="stat py-2">
-            <div className="stat-title text-xs">NO Shares</div>
-            <div className="stat-value text-lg text-error">
-              {toCredits(position.noShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
-            </div>
-            <div className="stat-desc text-xs">credits</div>
-          </div>
-          <div className="stat py-2">
-            <div className="stat-title text-xs">Total Shares</div>
-            <div className="stat-value text-lg text-primary">
-              {toCredits(totalShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
-            </div>
-            <div className="stat-desc text-xs">credits (YES + NO)</div>
-          </div>
+        {/* Position Stats - single row */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm mb-4">
+          <span>
+            <span className="text-base-content/70">YES:</span>{' '}
+            <span className="text-success font-medium tabular-nums">{yesStr}</span>
+          </span>
+          <span>
+            <span className="text-base-content/70">NO:</span>{' '}
+            <span className="text-error font-medium tabular-nums">{noStr}</span>
+          </span>
+          <span>
+            <span className="text-base-content/70">Total:</span>{' '}
+            <span className="text-primary font-medium tabular-nums">{totalStr}</span>
+          </span>
+          <span className="text-base-content/60 text-xs">credits</span>
         </div>
 
         {/* Potential Payout */}

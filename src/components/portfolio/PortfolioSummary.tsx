@@ -49,49 +49,45 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({ positions, g
     p => p.marketState?.status === 2
   ).length;
 
+  const cashStr = toCredits(totalAvailableCash).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+  const sharesStr = toCredits(totalShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+  const payoutStr = toCredits(totalPotentialPayout).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+
   return (
-    <div className="card bg-base-100 shadow-xl mb-6 rounded-xl border border-base-200">
-      <div className="card-body">
-        <h2 className="card-title mb-4">Portfolio Summary</h2>
-        <div className="stats stats-vertical lg:stats-horizontal shadow w-full">
-          <div className="stat">
-            <div className="stat-title">Total Markets</div>
-            <div className="stat-value">{totalMarkets}</div>
-            <div className="stat-desc">
-              {openMarkets} open, {resolvedMarkets} resolved, {pausedMarkets} paused
-            </div>
+    <div className="card bg-base-100 shadow-xl rounded-xl border border-base-200 overflow-hidden">
+      <div className="card-body p-4">
+        <h2 className="card-title text-base mb-3 gap-2">
+          <span className="text-lg leading-none" aria-hidden>💵</span>
+          Portfolio Summary
+        </h2>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2 rounded-lg bg-base-200/50 px-3 py-2">
+            <span className="text-sm text-base-content/80">Total Cash</span>
+            <span className="font-semibold text-primary tabular-nums">{cashStr}</span>
           </div>
-
-          <div className="stat">
-            <div className="stat-title">Total Cash</div>
-            <div className="stat-value text-primary">
-              {toCredits(totalAvailableCash).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
-            </div>
-            <div className="stat-desc">
-              Available to trade or withdraw (credits). {toCredits(totalCommittedCollateral).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} committed in positions.
-            </div>
+          <div className="flex items-center justify-between gap-2 rounded-lg bg-base-200/50 px-3 py-2">
+            <span className="text-sm text-base-content/80">Total Shares</span>
+            <span className="font-semibold tabular-nums">{sharesStr}</span>
           </div>
-
-          <div className="stat">
-            <div className="stat-title">Total Shares</div>
-            <div className="stat-value">
-              {toCredits(totalShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
-            </div>
-            <div className="stat-desc">
-              {toCredits(totalYesShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} YES, {toCredits(totalNoShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} NO (credits)
-            </div>
+          <div className="flex items-center justify-between gap-2 rounded-lg bg-base-200/50 px-3 py-2">
+            <span className="text-sm text-base-content/80">Markets</span>
+            <span className="flex items-center gap-2 text-right">
+              <span className="font-semibold tabular-nums">{totalMarkets}</span>
+              <span className="text-xs text-base-content/60" title={`${openMarkets} open, ${resolvedMarkets} resolved, ${pausedMarkets} paused`}>
+                {openMarkets} open · {resolvedMarkets} resolved · {pausedMarkets} paused
+              </span>
+            </span>
           </div>
-
-          {totalPotentialPayout > 0 && (
-            <div className="stat">
-              <div className="stat-title">Potential Payout</div>
-              <div className="stat-value text-success">
-                {toCredits(totalPotentialPayout).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
-              </div>
-              <div className="stat-desc">From resolved markets (credits)</div>
-            </div>
-          )}
         </div>
+        <p className="text-xs text-base-content/60 mt-2">
+          {toCredits(totalCommittedCollateral).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits committed in positions
+        </p>
+        {totalPotentialPayout > 0 && (
+          <div className="mt-3 rounded-lg bg-success/10 border border-success/20 px-3 py-2 text-sm text-success flex items-center justify-between gap-2">
+            <span>Payout available</span>
+            <strong className="tabular-nums">{payoutStr} credits</strong>
+          </div>
+        )}
       </div>
     </div>
   );

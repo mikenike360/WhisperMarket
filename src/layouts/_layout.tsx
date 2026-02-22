@@ -67,10 +67,18 @@ function HeaderCashBalance() {
   }, [userAddress]);
 
   if (!userAddress || cashBalance === null) return null;
+  const credits = toCredits(cashBalance);
+  const full = credits.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+  const short = credits.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   return (
-    <span className="text-sm font-medium text-base-content" title={`Cash: ${toCredits(cashBalance).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })} credits`}>
-      Cash: {toCredits(cashBalance).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-    </span>
+    <Link
+      href={routes.portfolio}
+      className="inline-flex items-center gap-1.5 rounded-lg bg-base-300/80 px-2.5 py-1 text-sm font-medium text-base-content transition-colors hover:bg-base-300"
+      title={`Cash: ${full} credits — go to portfolio`}
+    >
+      <span className="text-base leading-none" aria-hidden>💵</span>
+      <span className="tabular-nums">{short}</span>
+    </Link>
   );
 }
 
@@ -79,7 +87,9 @@ function HeaderRightArea() {
     <div className="relative order-last flex shrink-0 items-center gap-2 sm:gap-4 lg:gap-6">
       <ThemeSelector />
       <HeaderCashBalance />
-      <WalletMultiButton />
+      <div className="wallet-button-wrap flex items-center shrink-0">
+        <WalletMultiButton />
+      </div>
     </div>
   );
 }
