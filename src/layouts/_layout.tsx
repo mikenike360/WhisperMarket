@@ -42,7 +42,7 @@ function ThemeSelector() {
     <select
       value={theme}
       onChange={(e) => setTheme(e.target.value)}
-      className="select select-bordered select-sm max-w-[8rem]"
+      className="select select-bordered select-sm min-w-[9.5rem] sm:min-w-0 max-w-[11rem]"
     >
       {themes.map((t) => (
         <option key={t} value={t}>
