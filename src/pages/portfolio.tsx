@@ -180,6 +180,12 @@ const PortfolioPage: NextPageWithLayout = () => {
               }))}
               globalBalance={globalBalance ?? undefined}
             />
+            <p className="text-xs text-base-content/70 rounded-lg bg-base-200/60 border border-base-300/50 px-3 py-2 flex items-start gap-2">
+              <span className="text-sm leading-none shrink-0 mt-0.5" aria-hidden>🔒</span>
+              <span>
+                Only private Aleo credits are accepted for deposit and trading. Use your wallet to convert public credits to private credits.
+              </span>
+            </p>
             <ManageCashSection
               cashBalance={globalBalance}
               onBalanceRefreshed={loadPortfolio}
