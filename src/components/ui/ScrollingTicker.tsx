@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { getAllMarkets, getMarketState } from '@/lib/aleo/rpc';
+import { getMarketState } from '@/lib/aleo/rpc';
 import { getMarketsMetadata } from '@/services/marketMetadata';
+import { getOpenMarketIdsFromCache, getCachedMarketStates } from '@/services/marketStateCache';
 import { calculatePriceFromReserves } from '@/utils/positionHelpers';
 import { formatPriceCents } from '@/utils/priceDisplay';
 import { toCredits } from '@/utils/credits';
@@ -24,19 +25,12 @@ export function ScrollingTicker() {
     let intervalId: NodeJS.Timeout | null = null;
 
     async function load() {
-      if (document.hidden) return; // Don't fetch when tab is hidden
+      if (document.hidden) return;
 
       try {
-        const registry = await getAllMarkets();
-        const active = registry
-          .filter((m) => m.status === 0)
-          .sort((a, b) => {
-            // Sort by marketId for consistent ordering (we don't have volume data)
-            return a.marketId.localeCompare(b.marketId);
-          })
-          .slice(0, 10);
-
-        if (active.length === 0) {
+        const openIds = await getOpenMarketIdsFromCache();
+        const ids = [...openIds].sort((a, b) => a.localeCompare(b)).slice(0, 10);
+        if (ids.length === 0) {
           if (!cancelled) {
             setTickerItems([]);
             setLoading(false);
@@ -44,23 +38,26 @@ export function ScrollingTicker() {
           return;
         }
 
-        const ids = active.map((m) => m.marketId);
-        const metadataMap = await getMarketsMetadata(ids);
+        const [metadataMap, cachedStates] = await Promise.all([
+          getMarketsMetadata(ids),
+          getCachedMarketStates(ids, { allowStale: true }),
+        ]);
+        const missIds = ids.filter((id) => !cachedStates[id]);
         const stateResults = await Promise.all(
-          active.map((m) => getMarketState(m.marketId).catch(() => null))
+          missIds.map((marketId) => getMarketState(marketId).catch(() => null))
         );
         if (cancelled) return;
+        const stateByMiss = new Map(missIds.map((id, i) => [id, stateResults[i]]));
         const results: TickerItem[] = [];
-        for (let i = 0; i < active.length; i++) {
-          const state = stateResults[i];
+        for (const marketId of ids) {
+          const state = cachedStates[marketId] ?? stateByMiss.get(marketId) ?? null;
           if (!state) continue;
-          const m = active[i];
-          const meta = metadataMap[m.marketId];
+          const meta = metadataMap[marketId];
           const priceYes = calculatePriceFromReserves(state.yesReserve, state.noReserve);
           const priceNo = 10000 - priceYes;
           results.push({
-            marketId: m.marketId,
-            title: meta?.title ?? `Market ${m.marketId.slice(0, 8)}...`,
+            marketId,
+            title: meta?.title ?? `Market ${marketId.slice(0, 8)}...`,
             priceYes,
             priceNo,
             pool: state.collateralPool,

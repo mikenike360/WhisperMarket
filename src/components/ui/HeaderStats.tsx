@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getAllMarkets } from '@/lib/aleo/rpc';
+import { getOpenMarketIdsFromCache } from '@/services/marketStateCache';
 
 export function HeaderStats() {
   const [stats, setStats] = useState<{ activeMarkets: number } | null>(null);
@@ -11,10 +11,9 @@ export function HeaderStats() {
     async function load() {
       if (document.hidden) return;
       try {
-        const registry = await getAllMarkets();
-        const activeMarkets = registry.filter((m) => m.status === 0).length;
+        const openIds = await getOpenMarketIdsFromCache();
         if (!cancelled) {
-          setStats({ activeMarkets });
+          setStats({ activeMarkets: openIds.length });
         }
       } catch {
         if (!cancelled) {

@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { getAllMarkets, getMarketState } from '@/lib/aleo/rpc';
+import React, { useState, useEffect } from 'react';
+import { getTotalMarketsCount, getMarketState } from '@/lib/aleo/rpc';
+import { getOpenMarketIdsFromCache, getCachedMarketStates } from '@/services/marketStateCache';
 import { toCredits } from '@/utils/credits';
 
 interface PlatformStatsProps {
@@ -19,23 +20,28 @@ export function PlatformStats({ className = '' }: PlatformStatsProps) {
 
     async function load() {
       try {
-        const registry = await getAllMarkets();
-        const active = registry.filter((m) => m.status === 0);
-        const totalMarkets = registry.length;
-        const activeMarkets = active.length;
-
-        // Calculate total collateral from active markets
+        const openIds = await getOpenMarketIdsFromCache();
+        const [totalMarkets, cachedStates] = await Promise.all([
+          getTotalMarketsCount(),
+          openIds.length > 0 ? getCachedMarketStates(openIds, { allowStale: true }) : Promise.resolve({}),
+        ]);
+        const activeMarkets = openIds.length;
         let totalCollateral = 0;
-        const marketPromises = active.slice(0, 20).map(async (m) => {
-          try {
-            const state = await getMarketState(m.marketId);
-            return state.collateralPool;
-          } catch {
-            return 0;
+        for (const marketId of openIds) {
+          const state = cachedStates[marketId];
+          if (state) {
+            totalCollateral += state.collateralPool;
           }
-        });
-        const pools = await Promise.all(marketPromises);
-        totalCollateral = pools.reduce((sum, pool) => sum + pool, 0);
+        }
+        const missIds = openIds.filter((id) => !cachedStates[id]).slice(0, 20);
+        if (missIds.length > 0 && !cancelled) {
+          const pools = await Promise.all(
+            missIds.map((marketId) =>
+              getMarketState(marketId).then((s) => s.collateralPool).catch(() => 0)
+            )
+          );
+          totalCollateral += pools.reduce((sum, p) => sum + p, 0);
+        }
 
         if (!cancelled) {
           setStats({

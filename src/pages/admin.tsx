@@ -21,6 +21,7 @@ import {
   clearAdminSignedIn,
 } from '@/config/admin';
 import { getMarketsMetadata } from '@/services/marketMetadata';
+import { getOpenMarketIdsFromCache, getCachedMarketStates } from '@/services/marketStateCache';
 import { useTransaction } from '@/contexts/TransactionContext';
 
 const AdminPage: NextPageWithLayout = () => {
@@ -37,6 +38,7 @@ const AdminPage: NextPageWithLayout = () => {
   const [adminSignedIn, setAdminSignedInState] = useState(false);
   const [signInLoading, setSignInLoading] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
+  const [loadingFullFromChain, setLoadingFullFromChain] = useState(false);
 
   const userAddress = publicKey || address;
   const isAdminAddressMatch = isAdminAddress(userAddress);
@@ -52,7 +54,7 @@ const AdminPage: NextPageWithLayout = () => {
 
   const isAdmin = isAdminAddressMatch && adminSignedIn;
 
-  // Load markets and their states
+  // Load markets from Supabase cache (fast path)
   const loadMarkets = async () => {
     if (!isAdmin) {
       setLoading(false);
@@ -63,44 +65,82 @@ const AdminPage: NextPageWithLayout = () => {
     setError(null);
 
     try {
-      // Fetch all markets from registry
-      const allMarkets = await getAllMarkets();
-      setMarkets(allMarkets);
+      const openIds = await getOpenMarketIdsFromCache();
+      const list: MarketRegistryEntry[] = openIds.map((marketId) => ({
+        marketId,
+        status: 0,
+        metadataHash: null,
+        lastPriceUpdate: null,
+      }));
+      setMarkets(list);
 
-      // Fetch metadata for all markets
-      const marketIds = allMarkets.map(m => m.marketId);
-      const metadataMap = await getMarketsMetadata(marketIds);
-      // Convert Omit<MarketMetadata, "marketId"> to MarketMetadata by adding marketId
+      if (openIds.length === 0) {
+        setMarketMetadata({});
+        setMarketStates({});
+        setLoading(false);
+        return;
+      }
+
+      const [metadataMap, cachedStates] = await Promise.all([
+        getMarketsMetadata(openIds),
+        getCachedMarketStates(openIds, { allowStale: true }),
+      ]);
       const fullMetadataMap: Record<string, MarketMetadata> = {};
       Object.entries(metadataMap).forEach(([marketId, metadata]) => {
         fullMetadataMap[marketId] = { ...metadata, marketId };
       });
       setMarketMetadata(fullMetadataMap);
 
-      // Fetch state for each market in parallel
-      const statePromises = allMarkets.map(async (market) => {
-        try {
-          const state = await getMarketState(market.marketId);
-          return { marketId: market.marketId, state };
-        } catch (err: any) {
-          if (process.env.NODE_ENV === 'development') {
-          }
-          return { marketId: market.marketId, state: null };
-        }
-      });
-
-      const stateResults = await Promise.all(statePromises);
-      const statesMap: Record<string, MarketState> = {};
+      const missIds = openIds.filter((id) => !cachedStates[id]);
+      const stateResults = await Promise.all(
+        missIds.map((marketId) =>
+          getMarketState(marketId).then((state) => ({ marketId, state })).catch(() => ({ marketId, state: null }))
+        )
+      );
+      const statesMap: Record<string, MarketState> = { ...cachedStates };
       stateResults.forEach(({ marketId, state }) => {
-        if (state) {
-          statesMap[marketId] = state;
-        }
+        if (state) statesMap[marketId] = state;
       });
       setMarketStates(statesMap);
     } catch (err: any) {
       setError(err.message || 'Failed to load markets');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Load full list from chain (all markets including resolved; slow)
+  const loadFullFromChain = async () => {
+    if (!isAdmin) return;
+    setLoadingFullFromChain(true);
+    setError(null);
+    try {
+      const allMarkets = await getAllMarkets();
+      setMarkets(allMarkets);
+      const marketIds = allMarkets.map((m) => m.marketId);
+      const metadataMap = await getMarketsMetadata(marketIds);
+      const fullMetadataMap: Record<string, MarketMetadata> = {};
+      Object.entries(metadataMap).forEach(([marketId, metadata]) => {
+        fullMetadataMap[marketId] = { ...metadata, marketId };
+      });
+      setMarketMetadata(fullMetadataMap);
+
+      const cachedStates = await getCachedMarketStates(marketIds, { allowStale: true });
+      const missIds = marketIds.filter((id) => !cachedStates[id]);
+      const stateResults = await Promise.all(
+        missIds.map((marketId) =>
+          getMarketState(marketId).then((state) => ({ marketId, state })).catch(() => ({ marketId, state: null }))
+        )
+      );
+      const statesMap: Record<string, MarketState> = { ...cachedStates };
+      stateResults.forEach(({ marketId, state }) => {
+        if (state) statesMap[marketId] = state;
+      });
+      setMarketStates(statesMap);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load full list from chain');
+    } finally {
+      setLoadingFullFromChain(false);
     }
   };
 
@@ -339,7 +379,7 @@ const AdminPage: NextPageWithLayout = () => {
               Manage prediction markets. Connected as <code className="text-xs bg-base-200 px-1.5 py-0.5 rounded">{String(userAddress).slice(0, 16)}…</code>
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex gap-2 shrink-0 flex-wrap">
             <button
               type="button"
               className="btn btn-ghost btn-sm"
@@ -347,6 +387,22 @@ const AdminPage: NextPageWithLayout = () => {
               title="Sign out from admin (you will need to sign again to access)"
             >
               Sign out
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm sm:btn-md gap-2"
+              onClick={loadFullFromChain}
+              disabled={loading || loadingFullFromChain}
+              title="Load all markets from chain (including resolved); can be slow"
+            >
+              {loadingFullFromChain ? (
+                <>
+                  <span className="loading loading-spinner loading-sm" />
+                  Loading from chain...
+                </>
+              ) : (
+                'Load full list from chain'
+              )}
             </button>
             <button
               type="button"
