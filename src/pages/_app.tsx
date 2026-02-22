@@ -7,6 +7,7 @@ import Script from 'next/script';
 import { Hydrate, QueryClient, QueryClientProvider } from 'react-query';
 import { ReactQueryDevtools } from 'react-query/devtools';
 import { ThemeProvider } from 'next-themes';
+import { Analytics } from '@vercel/analytics/next';
 
 // Import Aleo Wallet Adapter dependencies
 import { AleoWalletProvider } from '@provablehq/aleo-wallet-adaptor-react';
@@ -109,6 +110,7 @@ function CustomApp({ Component, pageProps }: AppPropsWithLayout) {
         {process.env.NODE_ENV === 'development' && (
           <ReactQueryDevtools initialIsOpen={false} position="bottom-right" />
         )}
+        <Analytics />
       </QueryClientProvider>
     </>
   );
