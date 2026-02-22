@@ -145,36 +145,47 @@ const MainPage: NextPageWithLayout = () => {
       />
 
       <div className="min-h-full flex flex-col">
-        {/* Hero */}
-        <section className="relative flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 py-20 sm:py-28 md:py-32 text-center">
+        {/* Hero - transform creates own layer so WebGL background doesn't blur content */}
+        <section
+          className="relative flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 pt-12 sm:pt-16 md:pt-20 pb-20 sm:pb-28 md:pb-32 text-center"
+          style={{ transform: 'translateZ(0)', willChange: 'transform' }}
+        >
           <h1
-            className="relative text-5xl font-black tracking-tight sm:text-6xl md:text-7xl leading-tight"
+            className="relative text-5xl font-black tracking-tight sm:text-6xl md:text-7xl leading-[1.05] font-mono"
             style={{
               color: '#ffffff',
-              textShadow: '0 2px 4px rgba(0,0,0,0.8), 0 4px 12px rgba(0,0,0,0.6)',
+              fontFamily: "'Fira Code', monospace",
+              textShadow: '0 0 40px rgba(255,255,255,0.08), 0 2px 4px rgba(0,0,0,0.8), 0 4px 16px rgba(0,0,0,0.6)',
+              letterSpacing: '-0.03em',
             }}
           >
             WhisperMarket
           </h1>
+          <div
+            className="w-16 h-px mt-8 mb-6 rounded-full"
+            style={{ backgroundColor: 'rgba(255,255,255,0.4)' }}
+            aria-hidden
+          />
           <p
-            className="relative mt-6 mb-8 text-lg sm:text-xl font-semibold max-w-lg"
+            className="relative text-base sm:text-lg max-w-md leading-relaxed tracking-wide font-normal"
             style={{
-              color: '#ffffff',
-              textShadow: '0 2px 4px rgba(0,0,0,0.8)',
+              color: 'rgba(255,255,255,0.88)',
+              textShadow: '0 1px 3px rgba(0,0,0,0.8)',
             }}
           >
             A Private Prediction Marketplace built on the Aleo blockchain.
           </p>
+          <div className="mt-8" />
           <div className="relative flex flex-col sm:flex-row items-center gap-4">
             <Button
               onClick={() => router.push(routes.markets)}
-              className="btn btn-primary px-6 py-3 text-lg font-semibold"
+              className="btn btn-primary px-6 py-3 text-lg font-semibold tracking-wide"
             >
               Browse Markets
             </Button>
             <a
               href="#features"
-              className="link link-hover font-bold text-base"
+              className="link link-hover font-semibold text-sm uppercase tracking-widest opacity-90 hover:opacity-100 transition-opacity"
               style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
             >
               How it works →
@@ -193,7 +204,7 @@ const MainPage: NextPageWithLayout = () => {
         <section id="features" className="px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
           <div className="max-w-7xl mx-auto">
             <h2
-              className="text-3xl sm:text-4xl font-black text-center mb-8 sm:mb-12"
+              className="text-3xl sm:text-4xl font-black text-center mb-2 tracking-tight"
               style={{
                 color: '#ffffff',
                 textShadow: '0 2px 4px rgba(0,0,0,0.8), 0 4px 12px rgba(0,0,0,0.6)',
@@ -201,6 +212,9 @@ const MainPage: NextPageWithLayout = () => {
             >
               Why WhisperMarket
             </h2>
+            <p className="text-center text-sm uppercase tracking-widest mb-10 sm:mb-12" style={{ color: 'rgba(255,255,255,0.7)' }}>
+              Privacy-first prediction
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
               {FEATURES.map((f, idx) => (
                 <div
@@ -210,8 +224,8 @@ const MainPage: NextPageWithLayout = () => {
                 >
                   <div className="card-body items-center text-center p-6">
                     <div style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{f.icon}</div>
-                    <h3 className="card-title text-lg font-bold" style={{ color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>{f.title}</h3>
-                    <p className="text-sm font-medium" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{f.description}</p>
+                    <h3 className="card-title text-lg font-bold tracking-wide" style={{ color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>{f.title}</h3>
+                    <p className="text-sm font-medium leading-relaxed" style={{ color: 'rgba(255,255,255,0.9)', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{f.description}</p>
                   </div>
                 </div>
               ))}
@@ -229,7 +243,7 @@ const MainPage: NextPageWithLayout = () => {
           <div className="max-w-7xl mx-auto">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-12">
               <h2
-                className="text-3xl sm:text-4xl font-black"
+                className="text-3xl sm:text-4xl font-black tracking-tight"
                 style={{
                   color: '#ffffff',
                   textShadow: '0 2px 4px rgba(0,0,0,0.8), 0 4px 12px rgba(0,0,0,0.6)',
@@ -250,7 +264,7 @@ const MainPage: NextPageWithLayout = () => {
             ) : previewMarkets.length === 0 ? (
               <div className="card shadow-xl rounded-xl" style={{ backgroundColor: '#171717', borderColor: '#404040', borderWidth: 1 }}>
                 <div className="card-body items-center text-center py-12">
-                  <p className="font-medium" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>No active markets yet.</p>
+                  <p className="font-medium leading-relaxed" style={{ color: 'rgba(255,255,255,0.9)', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>No active markets yet.</p>
                   <Link href={routes.markets} className="btn btn-primary btn-sm mt-2">
                     View markets
                   </Link>
@@ -303,7 +317,7 @@ const MainPage: NextPageWithLayout = () => {
           <div className="max-w-7xl mx-auto text-center">
             <Link
               href={routes.markets}
-              className="link link-hover text-base font-extrabold inline-flex items-center gap-2"
+              className="link link-hover text-base font-extrabold inline-flex items-center gap-2 tracking-wide hover:opacity-90 transition-opacity"
               style={{
                 color: '#ffffff',
                 opacity: 1,

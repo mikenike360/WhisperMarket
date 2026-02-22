@@ -114,10 +114,11 @@ export function Header() {
         <div className="flex items-center gap-4 sm:gap-6">
           <Link
             href={routes.home}
-            className="text-xl font-bold tracking-tight text-base-content hover:opacity-80 transition-opacity"
+            className="flex items-center gap-2 text-xl font-bold tracking-tight text-base-content hover:opacity-80 transition-opacity"
             aria-label="Home"
           >
-            WhisperMarket
+            <img src="/logo.png" alt="" className="h-8 w-auto" width={32} height={32} />
+            <span>WhisperMarket</span>
           </Link>
           <nav className="flex items-center gap-3 sm:gap-4">
             <Link href={routes.markets} className="link link-hover font-medium text-sm sm:text-base">
