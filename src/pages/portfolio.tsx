@@ -14,6 +14,7 @@ import { PortfolioPositionCard } from '@/components/portfolio/PortfolioPositionC
 import { PortfolioSummary } from '@/components/portfolio/PortfolioSummary';
 import { ManageCashSection } from '@/components/portfolio/ManageCashSection';
 import { getMarketsMetadata } from '@/services/marketMetadata';
+import { getCachedMarketStates } from '@/services/marketStateCache';
 import { SkeletonCard } from '@/components/ui/SkeletonCard';
 import routes from '@/config/routes';
 
@@ -65,28 +66,21 @@ const PortfolioPage: NextPageWithLayout = () => {
       }
 
       // Extract unique market IDs
-      const marketIds = allPositions.map(p => p.position.marketId);
+      const marketIds = [...new Set(allPositions.map(p => p.position.marketId))];
 
-      // Fetch market states and metadata in parallel
-      const [marketStatesResults, metadataMap] = await Promise.all([
-        Promise.all(
-          marketIds.map(async (marketId) => {
-            try {
-              const state = await getMarketState(marketId);
-              return { marketId, state };
-            } catch (err: any) {
-              if (process.env.NODE_ENV === 'development') {
-              }
-              return { marketId, state: null };
-            }
-          })
-        ),
+      // Fetch from Supabase cache first, then chain only for cache misses
+      const [cachedStates, metadataMap] = await Promise.all([
+        getCachedMarketStates(marketIds, { allowStale: true }),
         getMarketsMetadata(marketIds),
       ]);
-
-      // Create a map of marketId -> MarketState
-      const marketStatesMap: Record<string, MarketState | null> = {};
-      marketStatesResults.forEach(({ marketId, state }) => {
+      const missIds = marketIds.filter(id => !cachedStates[id]);
+      const stateResults = await Promise.all(
+        missIds.map(marketId =>
+          getMarketState(marketId).then(state => ({ marketId, state })).catch(() => ({ marketId, state: null }))
+        )
+      );
+      const marketStatesMap: Record<string, MarketState | null> = { ...cachedStates };
+      stateResults.forEach(({ marketId, state }) => {
         marketStatesMap[marketId] = state;
       });
 
