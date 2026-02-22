@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @plugin "daisyui" {
-  themes: black --default, luxury, forest, synthwave;
+  themes: retro --default, black, luxury, forest, synthwave, light, dark, cupcake, dracula, night;
 }
 @plugin "@tailwindcss/typography";
 @plugin "@tailwindcss/forms";

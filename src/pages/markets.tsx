@@ -436,9 +436,6 @@ const MarketsPage: NextPageWithLayout = () => {
                           </span>
                           <span className="text-error font-medium"><AnimatedPrice priceBps={priceNo} decimals={1} showChange />¢ NO</span>
                         </div>
-                        {market.state.outcome !== null && (
-                          <p className="text-xs text-info">Resolved: {market.state.outcome ? 'YES' : 'NO'}</p>
-                        )}
                       </div>
                     ) : (
                       <p className="text-xs text-warning mb-2">Loading…</p>

@@ -37,7 +37,7 @@ export const MarketPositionCard: React.FC<MarketPositionCardProps> = ({ position
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col rounded-lg bg-base-200/60 p-3">
             <span className="text-xs text-base-content uppercase tracking-wide">Committed</span>
-            <span className="font-semibold text-secondary">
+            <span className="font-semibold text-base-content">
               {toCredits(position.yesShares + position.noShares).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
             </span>
             <span className="text-xs text-base-content">credits (YES + NO shares)</span>

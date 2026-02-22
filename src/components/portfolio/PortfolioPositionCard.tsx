@@ -52,23 +52,24 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
   };
 
   const getStatusBadge = () => {
+    const badgeBase = 'badge badge-sm text-xs whitespace-nowrap shrink-0 px-2';
     if (!marketState) {
-      return <span className="badge badge-ghost">Unknown</span>;
+      return <span className={`${badgeBase} badge-ghost`}>Unknown</span>;
     }
 
     switch (marketState.status) {
       case 0: // Open
-        return <span className="badge badge-success">Open</span>;
+        return <span className={`${badgeBase} badge-success`}>Open</span>;
       case 1: // Resolved
         return (
-          <span className="badge badge-info">
+          <span className={`${badgeBase} badge-info`}>
             Resolved: {marketState.outcome ? 'YES' : 'NO'}
           </span>
         );
       case 2: // Paused
-        return <span className="badge badge-warning">Paused</span>;
+        return <span className={`${badgeBase} badge-warning`}>Paused</span>;
       default:
-        return <span className="badge badge-ghost">Unknown</span>;
+        return <span className={`${badgeBase} badge-ghost`}>Unknown</span>;
     }
   };
 
@@ -149,8 +150,8 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
   return (
     <div className="card bg-base-100 shadow-xl rounded-xl hover:shadow-2xl transition-all duration-200 border border-transparent hover:border-base-300 hover:-translate-y-1">
       <div className="card-body">
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex-1">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="min-w-0 flex-1">
             <h3 className="card-title text-lg mb-2">
               {metadata?.title || `Market ${truncatedId}`}
             </h3>
@@ -167,7 +168,7 @@ export const PortfolioPositionCard: React.FC<PortfolioPositionCardProps> = ({
               </button>
             </div>
           </div>
-          {getStatusBadge()}
+          <span className="shrink-0">{getStatusBadge()}</span>
         </div>
 
         {metadata?.description && (

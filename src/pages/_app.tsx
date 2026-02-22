@@ -98,7 +98,7 @@ function CustomApp({ Component, pageProps }: AppPropsWithLayout) {
             autoConnect={true}
           >
             <WalletModalProvider>
-              <ThemeProvider attribute="data-theme" enableSystem={false} defaultTheme="black">
+              <ThemeProvider attribute="data-theme" enableSystem={false} defaultTheme="retro">
                 <TransactionProvider>
                   {getLayout(<Component {...pageProps} />)}
                 </TransactionProvider>

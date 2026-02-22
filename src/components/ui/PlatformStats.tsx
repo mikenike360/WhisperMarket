@@ -98,14 +98,14 @@ export function PlatformStats({ className = '' }: PlatformStatsProps) {
             <div className="stat-desc text-sm font-medium" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{stats.totalMarkets} total markets</div>
           </div>
           <div className="stat">
-            <div className="stat-title text-sm font-bold" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>Total Collateral</div>
+            <div className="stat-title text-sm font-bold" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>Total Aleo credits</div>
             <div className="stat-value text-3xl font-bold text-success">
               {toCredits(stats.totalCollateral).toLocaleString(undefined, {
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 2,
               })}
             </div>
-            <div className="stat-desc text-sm font-medium" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>credits in pools</div>
+            <div className="stat-desc text-sm font-medium" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>in pools</div>
           </div>
           <div className="stat">
             <div className="stat-title text-sm font-bold" style={{ color: '#ffffff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>Platform Status</div>
